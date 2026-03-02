@@ -1,0 +1,103 @@
+# celox.toml
+
+`celox.toml` is an optional Celox-specific configuration file placed alongside `Veryl.toml` at the project root. It extends the Veryl project with settings that are only relevant to simulation and testing.
+
+## Why It Exists
+
+`Veryl.toml`'s `[build] sources` list controls which directories are compiled for production. Test-only modules -- such as helper fixtures, mock peripherals, or reference models -- should not be included in those builds.
+
+`celox.toml` lets you declare extra source directories that Celox loads **only** during simulation and type generation, keeping them out of the standard Veryl build.
+
+## File Structure
+
+Place `celox.toml` next to `Veryl.toml`:
+
+```
+my-project/
+├── Veryl.toml
+├── celox.toml          ← Celox configuration
+├── src/
+│   └── Adder.veryl     # production sources (listed in Veryl.toml)
+└── test_veryl/
+    └── Reg.veryl        # test-only sources (listed in celox.toml)
+```
+
+## Configuration Reference
+
+```toml
+[test]
+sources = ["test_veryl"]
+```
+
+| Key | Type | Description |
+|---|---|---|
+| `test.sources` | `string[]` | Directories (relative to `celox.toml`) whose `.veryl` files are included in simulation and type generation. |
+
+## Example
+
+**`Veryl.toml`** — production build, only includes `src/`:
+
+```toml
+[project]
+name    = "my_project"
+version = "0.1.0"
+
+[build]
+clock_type = "posedge"
+reset_type = "async_low"
+sources    = ["src"]
+```
+
+**`celox.toml`** — additionally loads `test_veryl/` for simulation:
+
+```toml
+[test]
+sources = ["test_veryl"]
+```
+
+**`test_veryl/Reg.veryl`** — a test-only module:
+
+```veryl
+module Reg (
+    clk: input  clock,
+    rst: input  reset,
+    d:   input  logic<8>,
+    q:   output logic<8>,
+) {
+    always_ff (clk, rst) {
+        if_reset {
+            q = 0;
+        } else {
+            q = d;
+        }
+    }
+}
+```
+
+**`test/reg.test.ts`** — the test imports `Reg` just like any other module:
+
+```typescript
+import { describe, test, expect } from "vitest";
+import { Simulator } from "@celox-sim/celox";
+import { Reg } from "../test_veryl/Reg.veryl";
+
+describe("Reg", () => {
+  test("captures input on rising edge", () => {
+    const sim = Simulator.create(Reg);
+
+    sim.dut.d = 0xABn;
+    sim.tick();
+    expect(sim.dut.q).toBe(0xABn);
+
+    sim.dispose();
+  });
+});
+```
+
+The Vite plugin picks up `test_veryl/` automatically and generates type definitions for all modules declared there.
+
+## Behavior
+
+- If `celox.toml` does not exist, Celox uses only the sources listed in `Veryl.toml`.
+- All test source directories are merged with the project sources at simulation time. Modules from both are available in the same namespace.
+- The Vite plugin regenerates types for test sources on hot reload, just like for production sources.

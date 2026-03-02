@@ -66,6 +66,10 @@ export default defineConfig({
                   text: "Vite プラグイン",
                   link: "/ja/guide/vite-plugin",
                 },
+                {
+                  text: "celox.toml",
+                  link: "/ja/guide/celox-toml",
+                },
               ],
             },
           ],
@@ -101,6 +105,7 @@ export default defineConfig({
             { text: "VCD Waveform Output", link: "/guide/vcd" },
             { text: "Type Conversion", link: "/guide/type-conversion" },
             { text: "Vite Plugin", link: "/guide/vite-plugin" },
+            { text: "celox.toml", link: "/guide/celox-toml" },
           ],
         },
       ],
