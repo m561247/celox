@@ -1,0 +1,9 @@
+services:
+  verilator-bench:
+    build:
+      context: .
+      dockerfile: docker/verilator.Dockerfile
+    volumes:
+      - .:/workspace
+    working_dir: /workspace
+    command: bash scripts/run-verilator-bench.sh

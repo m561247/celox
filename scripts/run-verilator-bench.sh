@@ -1,24 +1,32 @@
 #!/bin/bash
 # Build and run Verilator benchmarks.
-# Outputs BENCH lines to stdout (build time + tick benchmarks).
+# Outputs BENCH lines to stdout (build time + tick/eval benchmarks).
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 BENCH_DIR="$SCRIPT_DIR/../benches/verilator"
-WORK="$(mktemp -d)"
-trap 'rm -rf "$WORK"' EXIT
 
-cp "$BENCH_DIR/Top.sv" "$BENCH_DIR/bench_main.cpp" "$WORK/"
-cd "$WORK"
+run_bench() {
+    local build_name="$1" top="$2" sv="$3" cpp="$4"
+    local work; work="$(mktemp -d)"
 
-# ── Measure build time (verilate + C++ compile) ──
-BUILD_START=$(date +%s%N)
-verilator --cc -O3 --exe bench_main.cpp Top.sv -CFLAGS "-O3"
-make -C obj_dir -f VTop.mk -j"$(nproc)" OPT_FAST="-O3" >/dev/null 2>&1
-BUILD_END=$(date +%s%N)
-BUILD_NS=$(( BUILD_END - BUILD_START ))
+    cp "$BENCH_DIR/$sv" "$BENCH_DIR/$cpp" "$work/"
 
-echo "BENCH simulation_build_top_n1000 $BUILD_NS"
+    local t0; t0=$(date +%s%N)
+    (
+        cd "$work"
+        verilator --cc -O3 --exe "$cpp" "$sv" --top-module "$top" -CFLAGS "-O3"
+        make -C obj_dir -f "V${top}.mk" -j"$(nproc)" OPT_FAST="-O3" >/dev/null 2>&1
+    )
+    local t1; t1=$(date +%s%N)
 
-# ── Run tick / testbench benchmarks ──
-./obj_dir/VTop
+    echo "BENCH $build_name $((t1 - t0))"
+    "$work/obj_dir/V${top}"
+    rm -rf "$work"
+}
+
+# ── Counter benchmark (N=1000) ──
+run_bench simulation_build_top_n1000      Top          Top.sv       bench_main.cpp
+
+# ── LinearSec benchmark (P=6: 57-bit data, 63-bit codeword) ──
+run_bench simulation_build_linear_sec_p6  LinearSecTop LinearSec.sv bench_linear_sec.cpp
