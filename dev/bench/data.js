@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772459354172,
+  "lastUpdate": 1772459354632,
   "repoUrl": "https://github.com/celox-sim/celox",
   "entries": {
     "Rust Benchmarks": [
@@ -2199,6 +2199,177 @@ window.BENCHMARK_DATA = {
             "name": "ts/tick_x10000_with_optimize",
             "value": 3.8234036666641864,
             "range": "± 0.3%",
+            "unit": "ms",
+            "extra": "3 samples"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "tignear+m@gmail.com",
+            "name": "tignear",
+            "username": "tignear"
+          },
+          "committer": {
+            "email": "tignear+m@gmail.com",
+            "name": "tignear",
+            "username": "tignear"
+          },
+          "distinct": true,
+          "id": "5cf87d6c995c9925c0897c39a5b5be78514e352f",
+          "message": "Fix benchmark asymmetries: full-cycle tick and consistent testbench workload\n\n- Verilator tick() was a half-cycle toggle; now does a full cycle\n  (low→eval→high→eval) so 1M ticks = 1M posedges on both sides\n- testbench benchmarks now do tick + read cnt0 (output) on both sides,\n  dropping the spurious rst=0 write (rst is already 0 after reset)\n- Add cnt0 output port (assign cnt0 = cnt[0]) to both Top.sv and the\n  Veryl CODE string so both sides read the same 32-bit output signal",
+          "timestamp": "2026-03-02T13:40:05Z",
+          "tree_id": "9816a41cb5161d798455fe909d61392ac9e72755",
+          "url": "https://github.com/celox-sim/celox/commit/5cf87d6c995c9925c0897c39a5b5be78514e352f"
+        },
+        "date": 1772459354500,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "ts/simulation_build_top_n1000",
+            "value": 716.3155220000002,
+            "range": "± 2.8%",
+            "unit": "ms",
+            "extra": "3 samples"
+          },
+          {
+            "name": "ts/simulation_tick_top_n1000_x1",
+            "value": 0.0005019367349220248,
+            "range": "± 0.1%",
+            "unit": "ms",
+            "extra": "996142 samples"
+          },
+          {
+            "name": "ts/simulation_tick_top_n1000_x1000000",
+            "value": 347.13445200000024,
+            "range": "± 1.0%",
+            "unit": "ms",
+            "extra": "3 samples"
+          },
+          {
+            "name": "ts/testbench_tick_top_n1000_x1",
+            "value": 0.0008372377018174139,
+            "range": "± 0.1%",
+            "unit": "ms",
+            "extra": "597202 samples"
+          },
+          {
+            "name": "ts/testbench_tick_top_n1000_x1000000",
+            "value": 684.9594486666671,
+            "range": "± 1.5%",
+            "unit": "ms",
+            "extra": "3 samples"
+          },
+          {
+            "name": "ts/testbench_array_tick_top_n1000_x1",
+            "value": 0.0008119791841266486,
+            "range": "± 0.1%",
+            "unit": "ms",
+            "extra": "615780 samples"
+          },
+          {
+            "name": "ts/testbench_array_tick_top_n1000_x1000000",
+            "value": 672.4965196666659,
+            "range": "± 1.2%",
+            "unit": "ms",
+            "extra": "3 samples"
+          },
+          {
+            "name": "ts/simulator_tick_x10000",
+            "value": 3.6908913333330324,
+            "range": "± 1.6%",
+            "unit": "ms",
+            "extra": "3 samples"
+          },
+          {
+            "name": "ts/simulation_step_x20000",
+            "value": 13.866088333333513,
+            "range": "± 45.2%",
+            "unit": "ms",
+            "extra": "3 samples"
+          },
+          {
+            "name": "ts/simulation_time_build_top_n1000",
+            "value": 701.7306066666667,
+            "range": "± 1.4%",
+            "unit": "ms",
+            "extra": "3 samples"
+          },
+          {
+            "name": "ts/simulation_time_step_x1",
+            "value": 0.0007838539917666643,
+            "range": "± 0.3%",
+            "unit": "ms",
+            "extra": "637875 samples"
+          },
+          {
+            "name": "ts/simulation_time_step_x1000000",
+            "value": 654.4297966666661,
+            "range": "± 3.9%",
+            "unit": "ms",
+            "extra": "3 samples"
+          },
+          {
+            "name": "ts/simulation_time_runUntil_1000000",
+            "value": 98.5263343333354,
+            "range": "± 1.9%",
+            "unit": "ms",
+            "extra": "3 samples"
+          },
+          {
+            "name": "ts/waitForCycles_x1000",
+            "value": 0.75704199999988,
+            "range": "± 1.8%",
+            "unit": "ms",
+            "extra": "3 samples"
+          },
+          {
+            "name": "ts/manual_step_loop_x2000",
+            "value": 1.260857000001124,
+            "range": "± 83.7%",
+            "unit": "ms",
+            "extra": "3 samples"
+          },
+          {
+            "name": "ts/runUntil_fast_path_100000",
+            "value": 4.361482666669569,
+            "range": "± 1.8%",
+            "unit": "ms",
+            "extra": "3 samples"
+          },
+          {
+            "name": "ts/runUntil_guarded_100000",
+            "value": 9.438729999999245,
+            "range": "± 1.5%",
+            "unit": "ms",
+            "extra": "3 samples"
+          },
+          {
+            "name": "ts/build_without_optimize",
+            "value": 733.6463196666688,
+            "range": "± 3.4%",
+            "unit": "ms",
+            "extra": "3 samples"
+          },
+          {
+            "name": "ts/build_with_optimize",
+            "value": 748.5959866666672,
+            "range": "± 2.5%",
+            "unit": "ms",
+            "extra": "3 samples"
+          },
+          {
+            "name": "ts/tick_x10000_without_optimize",
+            "value": 3.7521989999998673,
+            "range": "± 0.2%",
+            "unit": "ms",
+            "extra": "3 samples"
+          },
+          {
+            "name": "ts/tick_x10000_with_optimize",
+            "value": 3.7606643333322913,
+            "range": "± 3.4%",
             "unit": "ms",
             "extra": "3 samples"
           }
