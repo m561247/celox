@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772407610382,
+  "lastUpdate": 1772454448351,
   "repoUrl": "https://github.com/celox-sim/celox",
   "entries": {
     "Rust Benchmarks": [
@@ -461,6 +461,72 @@ window.BENCHMARK_DATA = {
             "name": "rust/testbench_tick_top_n1000_x1000000",
             "value": 336055.926,
             "range": "± 671.586 us",
+            "unit": "us"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "tignear+m@gmail.com",
+            "name": "tignear",
+            "username": "tignear"
+          },
+          "committer": {
+            "email": "tignear+m@gmail.com",
+            "name": "tignear",
+            "username": "tignear"
+          },
+          "distinct": true,
+          "id": "07b7299e4b58006ef0ff8e0d215c616612f8fc2a",
+          "message": "Remove resolve_module_name helper and inline its logic at call sites",
+          "timestamp": "2026-03-02T12:05:14Z",
+          "tree_id": "11da32332e9dcc49c93b67588c682dc937419c4a",
+          "url": "https://github.com/celox-sim/celox/commit/07b7299e4b58006ef0ff8e0d215c616612f8fc2a"
+        },
+        "date": 1772454446928,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "rust/simulator_tick_x10000",
+            "value": 1591.397,
+            "range": "± 24.811 us",
+            "unit": "us"
+          },
+          {
+            "name": "rust/simulation_step_x20000",
+            "value": 9878.82,
+            "range": "± 18.982 us",
+            "unit": "us"
+          },
+          {
+            "name": "rust/simulation_build_top_n1000",
+            "value": 748637.214,
+            "range": "± 4777.445 us",
+            "unit": "us"
+          },
+          {
+            "name": "rust/simulation_tick_top_n1000_x1",
+            "value": 0.158,
+            "range": "± 0.000 us",
+            "unit": "us"
+          },
+          {
+            "name": "rust/simulation_tick_top_n1000_x1000000",
+            "value": 159687.976,
+            "range": "± 772.069 us",
+            "unit": "us"
+          },
+          {
+            "name": "rust/testbench_tick_top_n1000_x1",
+            "value": 0.19,
+            "range": "± 0.000 us",
+            "unit": "us"
+          },
+          {
+            "name": "rust/testbench_tick_top_n1000_x1000000",
+            "value": 341094.948,
+            "range": "± 597.921 us",
             "unit": "us"
           }
         ]
