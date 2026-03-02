@@ -274,8 +274,11 @@ impl JitBackend {
                 if is_4state {
                     let allocated_size = super::get_byte_size(width);
                     unsafe {
-                        let mask_ptr =
-                            (backend.memory.as_mut_ptr() as *mut u8).add(offset + allocated_size);
+                        let base_ptr =
+                            (backend.memory.as_mut_ptr() as *mut u8).add(offset);
+                        // X = (v=1, m=1): fill both value and mask with 0xFF
+                        std::ptr::write_bytes(base_ptr, 0xFF, allocated_size);
+                        let mask_ptr = base_ptr.add(allocated_size);
                         std::ptr::write_bytes(mask_ptr, 0xFF, allocated_size);
                     }
                 }
@@ -292,8 +295,11 @@ impl JitBackend {
                 if is_4state {
                     let allocated_size = super::get_byte_size(width);
                     unsafe {
-                        let mask_ptr =
-                            (backend.memory.as_mut_ptr() as *mut u8).add(offset + allocated_size);
+                        let base_ptr =
+                            (backend.memory.as_mut_ptr() as *mut u8).add(offset);
+                        // X = (v=1, m=1): fill both value and mask with 0xFF
+                        std::ptr::write_bytes(base_ptr, 0xFF, allocated_size);
+                        let mask_ptr = base_ptr.add(allocated_size);
                         std::ptr::write_bytes(mask_ptr, 0xFF, allocated_size);
                     }
                 }
@@ -443,6 +449,12 @@ impl JitBackend {
     }
 
     /// Set 4-state value for a variable using a pre-resolved [`SignalRef`].
+    ///
+    /// Uses IEEE 1800 encoding:
+    /// - `(v=0, m=0)` → 0
+    /// - `(v=1, m=0)` → 1
+    /// - `(v=1, m=1)` → X (unknown)
+    /// - `(v=0, m=1)` → Z (high-impedance)
     pub fn set_four_state(&mut self, signal: SignalRef, value: BigUint, mask: BigUint) {
         let allocated_size = get_byte_size(signal.width);
 
@@ -479,6 +491,12 @@ impl JitBackend {
     }
 
     /// Get 4-state value for a variable using a pre-resolved [`SignalRef`].
+    ///
+    /// Returns `(value, mask)` using IEEE 1800 encoding:
+    /// - `(v=0, m=0)` → 0
+    /// - `(v=1, m=0)` → 1
+    /// - `(v=1, m=1)` → X (unknown)
+    /// - `(v=0, m=1)` → Z (high-impedance)
     pub fn get_four_state(&self, signal: SignalRef) -> (BigUint, BigUint) {
         let byte_size = get_byte_size(signal.width);
         let v_ptr: *const u8 = unsafe { (self.memory.as_ptr() as *const u8).add(signal.offset) };
