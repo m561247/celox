@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772459354632,
+  "lastUpdate": 1772462570755,
   "repoUrl": "https://github.com/celox-sim/celox",
   "entries": {
     "Rust Benchmarks": [
@@ -659,6 +659,72 @@ window.BENCHMARK_DATA = {
             "name": "rust/testbench_tick_top_n1000_x1000000",
             "value": 282348.397,
             "range": "± 3073.242 us",
+            "unit": "us"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "tignear+m@gmail.com",
+            "name": "tignear",
+            "username": "tignear"
+          },
+          "committer": {
+            "email": "tignear+m@gmail.com",
+            "name": "tignear",
+            "username": "tignear"
+          },
+          "distinct": true,
+          "id": "72bb0b5ec3580ffe82f31885e027622bdc414ee1",
+          "message": "Add guide pages for parameter overrides, hierarchy, combinational loops, and VCD\n\n- Add parameter-overrides, hierarchy, combinational-loops, vcd guides (EN + JA)\n- Update sidebar: add new pages, remove benchmarks from guide sidebar\n- Fix bigint literals (100 -> 100n) in getting-started examples\n- Replace tick()-on-combinational Adder with Reg example in writing-tests\n- Add factory method comparison (create / fromProject / fromSource)\n- Fix incorrect claims: false loop \"2-pass\", bit-level path narrowing",
+          "timestamp": "2026-03-02T14:33:29Z",
+          "tree_id": "79d68beb2ab22e161734abc7dc5fe80811ce1f62",
+          "url": "https://github.com/celox-sim/celox/commit/72bb0b5ec3580ffe82f31885e027622bdc414ee1"
+        },
+        "date": 1772462569276,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "rust/simulator_tick_x10000",
+            "value": 1590.508,
+            "range": "± 38.680 us",
+            "unit": "us"
+          },
+          {
+            "name": "rust/simulation_step_x20000",
+            "value": 9661.136,
+            "range": "± 23.746 us",
+            "unit": "us"
+          },
+          {
+            "name": "rust/simulation_build_top_n1000",
+            "value": 771251.151,
+            "range": "± 9556.475 us",
+            "unit": "us"
+          },
+          {
+            "name": "rust/simulation_tick_top_n1000_x1",
+            "value": 0.158,
+            "range": "± 0.000 us",
+            "unit": "us"
+          },
+          {
+            "name": "rust/simulation_tick_top_n1000_x1000000",
+            "value": 159406.292,
+            "range": "± 2692.314 us",
+            "unit": "us"
+          },
+          {
+            "name": "rust/testbench_tick_top_n1000_x1",
+            "value": 0.256,
+            "range": "± 0.000 us",
+            "unit": "us"
+          },
+          {
+            "name": "rust/testbench_tick_top_n1000_x1000000",
+            "value": 282590.176,
+            "range": "± 598.351 us",
             "unit": "us"
           }
         ]
