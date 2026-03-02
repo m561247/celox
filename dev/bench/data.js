@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772462571718,
+  "lastUpdate": 1772465140493,
   "repoUrl": "https://github.com/celox-sim/celox",
   "entries": {
     "Rust Benchmarks": [
@@ -725,6 +725,72 @@ window.BENCHMARK_DATA = {
             "name": "rust/testbench_tick_top_n1000_x1000000",
             "value": 282590.176,
             "range": "± 598.351 us",
+            "unit": "us"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "tignear+m@gmail.com",
+            "name": "tignear",
+            "username": "tignear"
+          },
+          "committer": {
+            "email": "tignear+m@gmail.com",
+            "name": "tignear",
+            "username": "tignear"
+          },
+          "distinct": true,
+          "id": "da3ea46e7c586cb30a9038e06e2a7f135d26cbeb",
+          "message": "Add celox.toml support for test-only Veryl source directories\n\nIntroduces an optional celox.toml alongside Veryl.toml:\n\n  [test]\n  sources = [\"test_veryl\"]\n\nDirectories listed under [test].sources are included when running\nsimulations via fromProject and when generating TypeScript type stubs\nvia genTs. Missing directories are silently skipped.",
+          "timestamp": "2026-03-02T15:16:04Z",
+          "tree_id": "bcb88e005893d2d76f425c17cf26761d0bb00369",
+          "url": "https://github.com/celox-sim/celox/commit/da3ea46e7c586cb30a9038e06e2a7f135d26cbeb"
+        },
+        "date": 1772465139644,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "rust/simulator_tick_x10000",
+            "value": 1450.684,
+            "range": "± 20.945 us",
+            "unit": "us"
+          },
+          {
+            "name": "rust/simulation_step_x20000",
+            "value": 8809.335,
+            "range": "± 18.943 us",
+            "unit": "us"
+          },
+          {
+            "name": "rust/simulation_build_top_n1000",
+            "value": 701583.93,
+            "range": "± 3595.494 us",
+            "unit": "us"
+          },
+          {
+            "name": "rust/simulation_tick_top_n1000_x1",
+            "value": 0.145,
+            "range": "± 0.000 us",
+            "unit": "us"
+          },
+          {
+            "name": "rust/simulation_tick_top_n1000_x1000000",
+            "value": 145699.088,
+            "range": "± 1031.821 us",
+            "unit": "us"
+          },
+          {
+            "name": "rust/testbench_tick_top_n1000_x1",
+            "value": 0.185,
+            "range": "± 0.001 us",
+            "unit": "us"
+          },
+          {
+            "name": "rust/testbench_tick_top_n1000_x1000000",
+            "value": 183861.703,
+            "range": "± 147.137 us",
             "unit": "us"
           }
         ]
