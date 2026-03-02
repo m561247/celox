@@ -272,6 +272,51 @@ fn comb_logical(op: &str, in_ty: &str, out_ty: &str, a: u64, b: u64, exp: u64) {
 }
 
 // ===================================================================
+// Logical — wide (>64-bit) operands, mixed-width
+// Regression: wide operand with narrow (I8-typed) operand caused
+// a Cranelift type mismatch in emit_wide_logic_andor.
+// ===================================================================
+
+fn check_comb_logical_wide_narrow(op: &str, wide_width: usize, a: u128, b: u8, expected: u64) {
+    let code = format!(
+        r#"
+        module Top (a: input logic<{wide_width}>, b: input logic, o: output logic) {{
+            assign o = a {op} b;
+        }}
+    "#
+    );
+    let mut sim = Simulator::builder(&code, "Top").build().unwrap();
+    let sig_a = sim.signal("a");
+    let sig_b = sim.signal("b");
+    let sig_o = sim.signal("o");
+    sim.set_wide(sig_a, BigUint::from(a));
+    sim.set(sig_b, b);
+    assert_eq!(
+        sim.get(sig_o),
+        BigUint::from(expected),
+        "wide comb {op}(logic<{wide_width}>, logic): a={a:#x} b={b}"
+    );
+}
+
+//                              op    width  a                            b    exp
+#[test_case("&&", 65,  0u128,                        0u8, 0u64 ; "wide65 and 0 0")]
+#[test_case("&&", 65,  0u128,                        1u8, 0u64 ; "wide65 and 0 1")]
+#[test_case("&&", 65,  0x1_0000_0000_0000_0000u128,  0u8, 0u64 ; "wide65 and hi 0")]
+#[test_case("&&", 65,  0x1_0000_0000_0000_0000u128,  1u8, 1u64 ; "wide65 and hi 1")]
+#[test_case("||", 65,  0u128,                        0u8, 0u64 ; "wide65 or 0 0")]
+#[test_case("||", 65,  0u128,                        1u8, 1u64 ; "wide65 or 0 1")]
+#[test_case("||", 65,  0x1_0000_0000_0000_0000u128,  0u8, 1u64 ; "wide65 or hi 0")]
+#[test_case("||", 65,  0x1_0000_0000_0000_0000u128,  1u8, 1u64 ; "wide65 or hi 1")]
+#[test_case("&&", 128, 0u128,                        0u8, 0u64 ; "wide128 and 0 0")]
+#[test_case("&&", 128, 0x1_0000_0000_0000_0000u128,  0u8, 0u64 ; "wide128 and lo 0")]
+#[test_case("&&", 128, 0x1_0000_0000_0000_0000u128,  1u8, 1u64 ; "wide128 and lo 1")]
+#[test_case("||", 128, 0u128,                        0u8, 0u64 ; "wide128 or 0 0")]
+#[test_case("||", 128, 0x1_0000_0000_0000_0000u128,  0u8, 1u64 ; "wide128 or lo 0")]
+fn comb_logical_wide_narrow(op: &str, width: usize, a: u128, b: u8, exp: u64) {
+    check_comb_logical_wide_narrow(op, width, a, b, exp);
+}
+
+// ===================================================================
 // Unary — comb
 // ===================================================================
 
