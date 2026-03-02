@@ -156,7 +156,7 @@ Both `Simulator` and `Simulation` accept the following options:
 
 ```typescript
 const sim = Simulator.fromSource(source, "Top", {
-  fourState: true,      // Enable 4-state (X/Z) simulation
+  fourState: true,      // Enable 4-state (X) simulation
   vcd: "./dump.vcd",    // Write VCD waveform output
   optimize: true,       // Enable Cranelift optimization passes
   clockType: "posedge", // Clock polarity (default: "posedge")
@@ -214,7 +214,7 @@ const sim = Simulator.fromSource(SOURCE, "Adder", {
 
 ## Further Reading
 
-- [4-State Simulation](./four-state.md) -- Using X and Z values in testbenches.
+- [4-State Simulation](./four-state.md) -- Using X values in testbenches.
 - [Parameter Overrides](./parameter-overrides.md) -- Overriding module parameters at simulation time.
 - [Architecture](/internals/architecture) -- The simulation pipeline in detail.
 - [API Reference](/api/) -- Full TypeScript API documentation.

@@ -1,6 +1,6 @@
 [package]
 name                  = "celox-ts-gen"
-version               = "0.18.0"
+version.workspace     = true
 authors.workspace     = true
 repository.workspace  = true
 license.workspace     = true

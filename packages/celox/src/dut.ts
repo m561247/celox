@@ -519,7 +519,7 @@ function createArrayDut(
 
 /**
  * Read the raw 4-state (value, mask) pair for a signal.
- * Mask bits set to 1 indicate X/Z.
+ * Mask bits set to 1 indicate X.
  */
 export function readFourState(
   buffer: ArrayBuffer | SharedArrayBuffer,

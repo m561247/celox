@@ -124,7 +124,7 @@ export interface CreateResult<H extends NativeHandle = NativeHandle> {
 // ---------------------------------------------------------------------------
 
 export interface SimulatorOptions {
-  /** Enable 4-state (X/Z) simulation. Default: false. */
+  /** Enable 4-state (X) simulation. Default: false. */
   fourState?: boolean;
   /** Path to write VCD waveform output. */
   vcd?: string;

@@ -8,6 +8,7 @@ members = [
 resolver = "2"
 
 [workspace.package]
+version     = "0.18.0"
 authors     = ["tignear"]
 repository  = "https://github.com/celox-sim/celox"
 keywords    = ["hdl", "simulator", "veryl"]

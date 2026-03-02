@@ -156,7 +156,7 @@ sim.runUntil(10000, { maxSteps: 500 });
 
 ```typescript
 const sim = Simulator.fromSource(source, "Top", {
-  fourState: true,      // 4 値 (X/Z) シミュレーションを有効化
+  fourState: true,      // 4 値 (X) シミュレーションを有効化
   vcd: "./dump.vcd",    // VCD 波形出力を書き出す
   optimize: true,       // Cranelift 最適化パスを有効化
   clockType: "posedge", // クロック極性 (デフォルト: "posedge")
