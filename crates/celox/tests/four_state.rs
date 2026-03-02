@@ -1497,7 +1497,9 @@ fn test_four_state_65bit_boundary() {
     // Without normalization, v contains Cranelift's actual addition result on the
     // X-encoded value bits (v=1 for X). The mask marks all bits as unknown, so the
     // value bits are don't-care from a simulation semantics perspective.
-    let _ = v_add;
+    // Concrete: (0x1_0000_0000_0000_00FF + 0x1_0000_0000_0000_000F) truncated to
+    // 65 bits = 0x10E.
+    assert_eq!(v_add, BigUint::from(0x10Eu64));
 }
 
 // ==========================================================================
@@ -1628,9 +1630,10 @@ fn test_four_state_sar_x_shift_amount() {
     .unwrap();
     let (v, m) = sim.get_four_state(id_y);
     assert_eq!(m, BigUint::from(0xFFu32), "SAR by X amount should yield all-X");
-    // Without normalization, v contains Cranelift's actual shift result (shift amount
-    // is masked by width-1). The mask marks all bits as unknown, so v is don't-care.
-    let _ = v;
+    // Without normalization, v contains Cranelift's actual shift result: shift amount
+    // (v=1) is masked by width-1 (7), giving 1. So 0x80 (signed) >>> 1 = 0xC0.
+    // The mask marks all bits as unknown, so v is don't-care semantically.
+    assert_eq!(v, BigUint::from(0xC0u32));
 }
 
 // ==========================================================================
@@ -2068,9 +2071,11 @@ fn test_four_state_wide_negation_with_x() {
     let (v, m) = sim.get_four_state(id_y);
     let all_x: BigUint = (BigUint::from(u64::MAX) << 64) | BigUint::from(u64::MAX);
     assert_eq!(m, all_x, "Wide negation with X should yield all-X");
-    // Without normalization, v contains Cranelift's actual computation result on the
-    // X-encoded value bits. The mask marks all bits as unknown, so v is don't-care.
-    let _ = v;
+    // Without normalization, v contains the actual negation of the raw value bits.
+    // a's value region is 5 (mask is separate), so -5 in 128-bit two's complement
+    // = 0xFFFF...FFFB. The mask marks all bits as unknown, so v is don't-care semantically.
+    let expected_neg = &all_x - BigUint::from(4u32); // (2^128 - 1) - 4 = 2^128 - 5
+    assert_eq!(v, expected_neg);
 }
 
 // ==========================================================================
@@ -2270,9 +2275,10 @@ fn test_four_state_shift_both_x() {
     .unwrap();
     let (v, m) = sim.get_four_state(id_y);
     assert_eq!(m, BigUint::from(0xFFu32), "Shift with X in both data and amount → all-X");
-    // Without normalization, v contains Cranelift's actual computation result on the
-    // X-encoded value bits. The mask marks all bits as unknown, so v is don't-care.
-    let _ = v;
+    // Without normalization, v contains Cranelift's actual shift result: shift amount
+    // (v=3) is masked by width-1 (7), giving 3. So 0xFF >> 3 = 0x1F.
+    // The mask marks all bits as unknown, so v is don't-care semantically.
+    assert_eq!(v, BigUint::from(0x1Fu32));
 }
 
 // ==========================================================================
@@ -2794,9 +2800,10 @@ fn test_four_state_wide_mul_with_x() {
     .unwrap();
     let (v, m) = sim.get_four_state(id_y);
     assert_eq!(m, all_x_128, "Wide MUL with X should yield all-X mask");
-    // Without normalization, v contains Cranelift's actual computation result on the
-    // X-encoded value bits. The mask marks all bits as unknown, so v is don't-care.
-    let _ = v;
+    // Without normalization, v contains the actual multiplication of raw value bits.
+    // a's value region is 3, b is 7, so 3 * 7 = 21 = 0x15.
+    // The mask marks all bits as unknown, so v is don't-care semantically.
+    assert_eq!(v, BigUint::from(21u32));
 }
 
 // ==========================================================================
@@ -2886,9 +2893,10 @@ fn test_four_state_wide_mod_with_x() {
     .unwrap();
     let (v, m) = sim.get_four_state(id_y);
     assert_eq!(m, all_x_128, "Wide MOD with X divisor should yield all-X");
-    // Without normalization, v contains Cranelift's actual computation result on the
-    // X-encoded value bits. The mask marks all bits as unknown, so v is don't-care.
-    let _ = v;
+    // Without normalization, v contains the actual modulo of raw value bits.
+    // a's value is 17, b's value region is 1, so 17 % 1 = 0.
+    // The mask marks all bits as unknown, so v is don't-care semantically.
+    assert_eq!(v, BigUint::from(0u32));
 }
 
 // ==========================================================================
@@ -2926,9 +2934,10 @@ fn test_four_state_sar_both_x() {
         BigUint::from(0xFFu32),
         "SAR with X in both data and shift amount → all-X"
     );
-    // Without normalization, v contains Cranelift's actual computation result on the
-    // X-encoded value bits. The mask marks all bits as unknown, so v is don't-care.
-    let _ = v;
+    // Without normalization, v contains Cranelift's actual shift result: shift amount
+    // (v=3) is masked by width-1 (7), giving 3. So 0x80 (signed) >>> 3 = 0xF0.
+    // The mask marks all bits as unknown, so v is don't-care semantically.
+    assert_eq!(v, BigUint::from(0xF0u32));
 }
 
 // ==========================================================================
