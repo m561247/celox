@@ -19,8 +19,8 @@ Celox には Rust コア、TypeScript ランタイム、および参照ベース
 | `simulation_build_top_n1000` | JIT コンパイル時間 |
 | `simulation_tick_top_n1000_x1` | 単一クロックティック |
 | `simulation_tick_top_n1000_x1000000` | 100 万ティックのループ |
-| `testbench_tick_top_n1000_x1` | 単一テストベンチサイクル（書込 + ティック + 読出） |
-| `testbench_tick_top_n1000_x1000000` | 100 万テストベンチサイクル |
+| `testbench_tick_top_n1000_x1` | 単一テストベンチサイクル（ティック + 出力読出） |
+| `testbench_tick_top_n1000_x1000000` | 100 万テストベンチサイクル（ティック + 出力読出） |
 | `simulator_tick_x10000` | 生の Simulator::tick、1 万回反復 |
 | `simulation_step_x20000` | Simulation::step、2 万ステップ |
 

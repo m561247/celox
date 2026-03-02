@@ -24,8 +24,12 @@ static void reset(VTop *top) {
     top->eval();
 }
 
+// One full clock cycle: falling edge then rising edge (posedge fires always_ff).
+// After reset clk=0, so each call produces exactly one posedge.
 static inline void tick(VTop *top) {
-    top->clk = !top->clk;
+    top->clk = 0;
+    top->eval();
+    top->clk = 1;
     top->eval();
 }
 
@@ -84,7 +88,7 @@ int main(int argc, char **argv) {
         auto start = Clock::now();
         for (int i = 0; i < ITERS; i++) {
             tick(top);
-            sink = top->cnt[0];
+            sink = top->cnt0;
         }
         auto end = Clock::now();
 
@@ -96,7 +100,7 @@ int main(int argc, char **argv) {
         delete top;
     }
 
-    // --- testbench_tick_top_n1000_x1000000 ---
+    // --- testbench_tick_top_n1000_x1000000 (tick + read output) ---
     {
         VTop *top = new VTop;
         reset(top);
@@ -106,7 +110,7 @@ int main(int argc, char **argv) {
         auto start = Clock::now();
         for (int i = 0; i < TICKS; i++) {
             tick(top);
-            sink = top->cnt[0];
+            sink = top->cnt0;
         }
         auto end = Clock::now();
 

@@ -8,7 +8,9 @@ const CODE: &str = r#"
         clk: input clock,
         rst: input reset,
         cnt: output logic<32>[N],
+        cnt0: output logic<32>,
     ) {
+        assign cnt0 = cnt[0];
         for i in 0..N: g {
             always_ff (clk, rst) {
                 if_reset {
@@ -31,16 +33,11 @@ fn benchmark_counter(c: &mut Criterion) {
     let mut sim = Simulator::builder(CODE, "Top").build().unwrap();
     let clk = sim.event("clk");
     let rst = sim.signal("rst");
+    let cnt0 = sim.signal("cnt0");
 
-    sim.modify(|io| {
-        io.set(rst, 1u8);
-    })
-    .unwrap();
+    sim.modify(|io| io.set(rst, 1u8)).unwrap();
     sim.tick(clk).unwrap();
-    sim.modify(|io| {
-        io.set(rst, 0u8);
-    })
-    .unwrap();
+    sim.modify(|io| io.set(rst, 0u8)).unwrap();
 
     c.bench_function("simulation_tick_top_n1000_x1", |b| {
         b.iter(|| {
@@ -56,21 +53,19 @@ fn benchmark_counter(c: &mut Criterion) {
         })
     });
 
-    // Testbench pattern: write input + tick + read input back
+    // Testbench pattern: tick + read output
     c.bench_function("testbench_tick_top_n1000_x1", |b| {
         b.iter(|| {
-            sim.modify(|io| io.set(rst, 0u8)).unwrap();
             sim.tick(clk).unwrap();
-            std::hint::black_box(sim.get(rst));
+            std::hint::black_box(sim.get(cnt0));
         })
     });
 
     c.bench_function("testbench_tick_top_n1000_x1000000", |b| {
         b.iter(|| {
             for _ in 0..1000000 {
-                sim.modify(|io| io.set(rst, 0u8)).unwrap();
                 sim.tick(clk).unwrap();
-                std::hint::black_box(sim.get(rst));
+                std::hint::black_box(sim.get(cnt0));
             }
         })
     });

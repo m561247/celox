@@ -19,8 +19,8 @@ All benchmarks use a counter module (`Top`) with **N=1000** parallel 32-bit coun
 | `simulation_build_top_n1000` | JIT compile time |
 | `simulation_tick_top_n1000_x1` | Single clock tick |
 | `simulation_tick_top_n1000_x1000000` | 1M ticks in a loop |
-| `testbench_tick_top_n1000_x1` | Single testbench cycle (write + tick + read) |
-| `testbench_tick_top_n1000_x1000000` | 1M testbench cycles |
+| `testbench_tick_top_n1000_x1` | Single testbench cycle (tick + read output) |
+| `testbench_tick_top_n1000_x1000000` | 1M testbench cycles (tick + read output) |
 | `simulator_tick_x10000` | Raw Simulator::tick, 10k iterations |
 | `simulation_step_x20000` | Simulation::step, 20k steps |
 

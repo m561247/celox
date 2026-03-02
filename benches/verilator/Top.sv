@@ -5,8 +5,10 @@ module Top #(
 )(
     input  logic        clk,
     input  logic        rst,
-    output logic [31:0] cnt [0:N-1]
+    output logic [31:0] cnt [0:N-1],
+    output logic [31:0] cnt0
 );
+    assign cnt0 = cnt[0];
     for (genvar i = 0; i < N; i++) begin : g
         always_ff @(posedge clk or posedge rst) begin
             if (rst)
