@@ -85,6 +85,24 @@ impl Simulator {
         }
     }
 
+    /// Sets a signal value and marks combinational logic as dirty.
+    pub fn set<T: Copy>(&mut self, signal: SignalRef, val: T) {
+        self.backend.set(signal, val);
+        self.dirty = true;
+    }
+
+    /// Sets a wide signal value and marks combinational logic as dirty.
+    pub fn set_wide(&mut self, signal: SignalRef, val: BigUint) {
+        self.backend.set_wide(signal, val);
+        self.dirty = true;
+    }
+
+    /// Sets a four-state signal value and marks combinational logic as dirty.
+    pub fn set_four_state(&mut self, signal: SignalRef, val: BigUint, mask: BigUint) {
+        self.backend.set_four_state(signal, val, mask);
+        self.dirty = true;
+    }
+
     /// Modifies internal state via a callback and marks combinational logic as dirty.
     pub fn modify<F>(&mut self, f: F) -> Result<(), RuntimeErrorCode>
     where
