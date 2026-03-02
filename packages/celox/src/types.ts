@@ -138,6 +138,8 @@ export interface SimulatorOptions {
   clockType?: "posedge" | "negedge";
   /** Reset type. Default: "async_low". */
   resetType?: "async_high" | "async_low" | "sync_high" | "sync_low";
+  /** Additional Veryl source to append to the main source code. */
+  extraSource?: string;
 }
 
 // ---------------------------------------------------------------------------

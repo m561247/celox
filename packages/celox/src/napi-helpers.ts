@@ -87,6 +87,7 @@ export interface NapiOptions {
   trueLoops?: NapiTrueLoop[];
   clockType?: string;
   resetType?: string;
+  extraSource?: string;
 }
 
 export interface RawNapiAddon {
@@ -220,6 +221,10 @@ export function buildNapiOpts(options?: SimulatorOptions): NapiOptions | undefin
   }
   if (options.resetType) {
     napiOpts.resetType = options.resetType;
+    hasOpt = true;
+  }
+  if (options.extraSource) {
+    napiOpts.extraSource = options.extraSource;
     hasOpt = true;
   }
 

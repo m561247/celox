@@ -51,6 +51,8 @@ pub struct NapiOptions {
     pub clock_type: Option<String>,
     /// Reset type: "async_high", "async_low", "sync_high", or "sync_low".
     pub reset_type: Option<String>,
+    /// Additional Veryl source to append to the main source code.
+    pub extra_source: Option<String>,
 }
 
 /// Parsed builder options from NapiOptions.
@@ -69,6 +71,7 @@ struct ParsedOptions {
     )>,
     clock_type: Option<celox::ClockType>,
     reset_type: Option<celox::ResetType>,
+    extra_source: Option<String>,
 }
 
 /// Convert a NapiSignalPath to the Rust builder's tuple format.
@@ -156,6 +159,7 @@ fn parse_options(options: &Option<NapiOptions>) -> Result<ParsedOptions> {
                 true_loops,
                 clock_type,
                 reset_type,
+                extra_source: o.extra_source.clone(),
             })
         }
         None => Ok(ParsedOptions {
@@ -166,8 +170,18 @@ fn parse_options(options: &Option<NapiOptions>) -> Result<ParsedOptions> {
             true_loops: Vec::new(),
             clock_type: None,
             reset_type: None,
+            extra_source: None,
         }),
     }
+}
+
+/// Append extra source to the main source if provided.
+fn append_extra_source(mut source: String, extra: &Option<String>) -> String {
+    if let Some(extra) = extra {
+        source.push('\n');
+        source.push_str(extra);
+    }
+    source
 }
 
 /// Load a Veryl project's source files and metadata from a directory.
@@ -238,6 +252,7 @@ impl NativeSimulatorHandle {
     #[napi(constructor)]
     pub fn new(code: String, top: String, options: Option<NapiOptions>) -> Result<Self> {
         let opts = parse_options(&options)?;
+        let code = append_extra_source(code, &opts.extra_source);
         let builder = apply_options(celox::Simulator::builder(&code, &top), &opts);
         let sim = builder
             .build()
@@ -279,6 +294,7 @@ impl NativeSimulatorHandle {
     pub fn from_project(project_path: String, top: String, options: Option<NapiOptions>) -> Result<Self> {
         let opts = parse_options(&options)?;
         let (source, metadata) = load_project_source(&project_path)?;
+        let source = append_extra_source(source, &opts.extra_source);
 
         let builder = apply_options(
             celox::Simulator::builder(&source, &top).with_metadata(metadata),
@@ -426,6 +442,7 @@ impl NativeSimulationHandle {
     #[napi(constructor)]
     pub fn new(code: String, top: String, options: Option<NapiOptions>) -> Result<Self> {
         let opts = parse_options(&options)?;
+        let code = append_extra_source(code, &opts.extra_source);
         let builder = apply_options(celox::Simulation::builder(&code, &top), &opts);
         let sim = builder
             .build()
@@ -463,6 +480,7 @@ impl NativeSimulationHandle {
     pub fn from_project(project_path: String, top: String, options: Option<NapiOptions>) -> Result<Self> {
         let opts = parse_options(&options)?;
         let (source, metadata) = load_project_source(&project_path)?;
+        let source = append_extra_source(source, &opts.extra_source);
 
         let builder = apply_options(
             celox::Simulation::builder(&source, &top).with_metadata(metadata),
