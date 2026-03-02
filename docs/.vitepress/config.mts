@@ -43,6 +43,22 @@ export default defineConfig({
                   link: "/ja/guide/four-state",
                 },
                 {
+                  text: "パラメータオーバーライド",
+                  link: "/ja/guide/parameter-overrides",
+                },
+                {
+                  text: "子インスタンスへのアクセス",
+                  link: "/ja/guide/hierarchy",
+                },
+                {
+                  text: "組み合わせループ",
+                  link: "/ja/guide/combinational-loops",
+                },
+                {
+                  text: "VCD 波形出力",
+                  link: "/ja/guide/vcd",
+                },
+                {
                   text: "型変換",
                   link: "/ja/guide/type-conversion",
                 },
@@ -79,9 +95,12 @@ export default defineConfig({
             { text: "Getting Started", link: "/guide/getting-started" },
             { text: "Writing Tests", link: "/guide/writing-tests" },
             { text: "4-State Simulation", link: "/guide/four-state" },
+            { text: "Parameter Overrides", link: "/guide/parameter-overrides" },
+            { text: "Child Instance Access", link: "/guide/hierarchy" },
+            { text: "Combinational Loops", link: "/guide/combinational-loops" },
+            { text: "VCD Waveform Output", link: "/guide/vcd" },
             { text: "Type Conversion", link: "/guide/type-conversion" },
             { text: "Vite Plugin", link: "/guide/vite-plugin" },
-            { text: "Benchmarks", link: "/benchmarks/" },
           ],
         },
       ],

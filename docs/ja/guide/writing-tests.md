@@ -4,31 +4,60 @@ Celox は 2 つのシミュレーションモードを提供します: 手動ク
 
 ## イベントベースシミュレーション
 
-`Simulator` はクロックティックを直接制御します。組み合わせ回路や、タイミングを細かく制御したい場合に適しています。
+`Simulator` はクロックティックを直接制御します。クロックエッジをステップごとに明示的に駆動したい場合に使います。
 
 ```typescript
 import { describe, test, expect } from "vitest";
 import { Simulator } from "@celox-sim/celox";
-import { Adder } from "../src/Adder.veryl";
+import { Reg } from "../src/Reg.veryl";
 
-describe("Adder", () => {
-  test("adds two numbers", () => {
-    const sim = Simulator.create(Adder);
+describe("Reg", () => {
+  test("クロックエッジで入力をキャプチャする", () => {
+    const sim = Simulator.create(Reg);
 
-    sim.dut.a = 100n;
-    sim.dut.b = 200n;
+    // 値をセットしてクロックを入れる
+    sim.dut.d = 0xABn;
     sim.tick();
-    expect(sim.dut.sum).toBe(300n);
+    expect(sim.dut.q).toBe(0xABn);
+
+    // 入力を変えても次の tick までは出力が変わらない
+    sim.dut.d = 0xCDn;
+    expect(sim.dut.q).toBe(0xABn);
+    sim.tick();
+    expect(sim.dut.q).toBe(0xCDn);
 
     sim.dispose();
   });
 });
 ```
 
+`src/Reg.veryl`:
+
+```veryl
+module Reg (
+    clk: input  clock,
+    rst: input  reset,
+    d:   input  logic<8>,
+    q:   output logic<8>,
+) {
+    always_ff (clk, rst) {
+        if_reset {
+            q = 0;
+        } else {
+            q = d;
+        }
+    }
+}
+```
+
 - `Simulator.create(Module)` は Veryl モジュール定義からシミュレータインスタンスを作成します。
 - シグナル値は `sim.dut.<ポート名>` で読み書きします。
 - `sim.tick()` でシミュレーションを 1 クロックサイクル進めます。
 - `sim.dispose()` でネイティブリソースを解放します。
+
+::: tip 組み合わせ回路の場合
+`always_comb` だけのモジュールでは `tick()` は不要です。出力を読むと現在の入力で組み合わせロジックが自動的に評価されます。
+:::
 
 ## タイムベースシミュレーション
 
@@ -132,6 +161,9 @@ const sim = Simulator.fromSource(source, "Top", {
   optimize: true,       // Cranelift 最適化パスを有効化
   clockType: "posedge", // クロック極性 (デフォルト: "posedge")
   resetType: "async_low", // リセットタイプ (デフォルト: "async_low")
+  parameters: [         // トップレベルパラメータのオーバーライド
+    { name: "WIDTH", value: 16 },
+  ],
 });
 ```
 
@@ -151,8 +183,38 @@ import { Counter } from "../src/Counter.veryl";
 pnpm test
 ```
 
+## ファクトリメソッドの使い分け
+
+3 つのファクトリメソッドはすべて同等のシミュレータを生成します。違いはソースの取得元だけです。
+
+**`Simulator.create(Module)` / `Simulation.create(Module)`** は Vite プラグインを使う場合の標準的な選択肢です。インポートした `Module` にプロジェクトパスが埋め込まれているため、`create` は内部で `fromProject` に委譲し、全ソースファイルと `Veryl.toml` の設定を自動的に読み込みます。ポートの型も生成済みです。
+
+```typescript
+import { Adder } from "../src/Adder.veryl"; // Vite プラグインが生成
+const sim = Simulator.create(Adder);
+```
+
+**`fromProject(path, name)`** は `create` と同じ動作ですが、パスを明示的に指定します。Vite ビルド外の Node.js スクリプトなど、静的インポートなしにプロジェクトディレクトリを指定したい場合に使います。
+
+```typescript
+const sim = Simulator.fromProject("./my-project", "Adder");
+```
+
+**`fromSource(source, name)`** は `Veryl.toml` なしで Veryl ソース文字列を直接コンパイルします。クロックとリセットの設定はオプションで個別に指定する必要があります。完全に自己完結したテストや、設計をテストファイル内にインラインで書く場合に便利です。
+
+```typescript
+const SOURCE = `
+module Adder ( ... ) { ... }
+`;
+const sim = Simulator.fromSource(SOURCE, "Adder", {
+  clockType: "posedge",
+  resetType: "async_low",
+});
+```
+
 ## 関連資料
 
 - [4 値シミュレーション](./four-state.md) -- テストベンチでの X 値の使い方。
+- [パラメータオーバーライド](./parameter-overrides.md) -- シミュレーション時にモジュールパラメータを上書きする方法。
 - [アーキテクチャ](/internals/architecture) -- シミュレーションパイプラインの詳細。
 - [API リファレンス](/api/) -- TypeScript API の完全なドキュメント。

@@ -115,10 +115,9 @@ describe("Adder", () => {
   test("adds two numbers", () => {
     const sim = Simulator.create(Adder);
 
-    sim.dut.a = 100;
-    sim.dut.b = 200;
-    sim.tick();
-    expect(sim.dut.sum).toBe(300);
+    sim.dut.a = 100n;
+    sim.dut.b = 200n;
+    expect(sim.dut.sum).toBe(300n);
 
     sim.dispose();
   });
