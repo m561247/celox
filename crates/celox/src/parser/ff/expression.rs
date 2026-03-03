@@ -10,9 +10,10 @@ use crate::parser::{
 use malachite_bigint::BigUint;
 
 use veryl_analyzer::ir::{
-    ArrayLiteralItem, AssignDestination, AssignStatement, Expression, Factor, Op, Type,
+    ArrayLiteralItem, AssignDestination, AssignStatement, Comptime, Expression, Factor, Op, Type,
     ValueVariant, VarId, VarIndex, VarSelect,
 };
+use veryl_parser::token_range::TokenRange;
 
 impl<'a> FfParser<'a> {
     pub(super) fn emit_offset_calc<A>(
@@ -645,7 +646,7 @@ impl<'a> FfParser<'a> {
             .sum::<Result<usize, ParserError>>()?;
 
         match &assign_statement.expr {
-            Expression::ArrayLiteral(items) => {
+            Expression::ArrayLiteral(items, _) => {
                 self.parse_array_literal(
                     items,
                     Some(expected_width),
@@ -656,7 +657,7 @@ impl<'a> FfParser<'a> {
                     ir_builder,
                 )?;
             }
-            Expression::StructConstructor(ty, fields) => {
+            Expression::StructConstructor(ty, fields, _) => {
                 self.parse_struct_constructor(
                     ty,
                     fields,
@@ -715,7 +716,7 @@ impl<'a> FfParser<'a> {
         context_width: Option<usize>,
     ) -> Result<(), ParserError> {
         match factor {
-            Factor::Variable(var_id, var_index, var_select, _comptime, _token_range) => {
+            Factor::Variable(var_id, var_index, var_select, _comptime) => {
                 if let Some(bound_expr) = self.get_bound_function_arg_expr(*var_id) {
                     let bound_expr = bound_expr.clone();
                     if var_index.0.is_empty() && var_select.0.is_empty() && var_select.1.is_none() {
@@ -741,7 +742,7 @@ impl<'a> FfParser<'a> {
                         });
                     };
 
-                    let Factor::Variable(bound_var_id, bound_var_index, bound_var_select, _, _) =
+                    let Factor::Variable(bound_var_id, bound_var_index, bound_var_select, _) =
                         bound_factor.as_ref()
                     else {
                         return Err(ParserError::UnsupportedFFLowering {
@@ -785,7 +786,7 @@ impl<'a> FfParser<'a> {
                     )?;
                 }
             }
-            Factor::Value(comptime, _token_range) => {
+            Factor::Value(comptime) => {
                 let v = comptime.get_value().unwrap();
                 let mask_xz = v.mask_xz().into_owned();
                 let payload = v.payload().into_owned();
@@ -797,16 +798,16 @@ impl<'a> FfParser<'a> {
                     ir_builder,
                 );
             }
-            Factor::SystemFunctionCall(call, _) => {
+            Factor::SystemFunctionCall(call) => {
                 return Err(ParserError::UnsupportedFFLowering {
                     feature: "system function call",
                     detail: format!("{call}"),
                 });
             }
-            Factor::FunctionCall(call, _) => {
+            Factor::FunctionCall(call) => {
                 self.parse_function_call_expr(call, targets, domain, convert, sources, ir_builder)?;
             }
-            Factor::Anonymous(_) | Factor::Unresolved(_, _) | Factor::Unknown(_) => {
+            Factor::Anonymous(_) | Factor::Unknown(_) => {
                 unreachable!("Expression factors must be resolved before FF lowering")
             }
         }
@@ -855,7 +856,7 @@ impl<'a> FfParser<'a> {
         ir_builder: &mut SIRBuilder<A>,
         context_width: Option<usize>,
     ) -> Result<(), ParserError> {
-        let parent_expr = Expression::Binary(Box::new(left.clone()), *op, Box::new(right.clone()));
+        let parent_expr = Expression::Binary(Box::new(left.clone()), *op, Box::new(right.clone()), Box::new(Comptime::create_unknown(TokenRange::default())));
         if matches!(op, Op::LogicAnd) {
             self.parse_logic_op(
                 true, left, right, targets, domain, convert, sources, ir_builder,
@@ -872,7 +873,7 @@ impl<'a> FfParser<'a> {
         let (lhs_context_width, rhs_context_width) = if matches!(op, Op::As) {
             // `as` cast: LHS inherits target width from RHS type/numeric, RHS is metadata
             let target_width = if let Expression::Term(f) = right {
-                if let Factor::Value(v, _) = f.as_ref() {
+                if let Factor::Value(v) = f.as_ref() {
                     match &v.value {
                         ValueVariant::Type(ty) => ty.total_width(),
                         ValueVariant::Numeric(n) => n.to_usize(),
@@ -1461,7 +1462,7 @@ impl<'a> FfParser<'a> {
                     context_width,
                 )?;
             }
-            Expression::Binary(left, op, right) => {
+            Expression::Binary(left, op, right, _) => {
                 self.parse_binary(
                     op,
                     left,
@@ -1474,7 +1475,7 @@ impl<'a> FfParser<'a> {
                     context_width,
                 )?;
             }
-            Expression::Unary(op, expr) => {
+            Expression::Unary(op, expr, _) => {
                 self.parse_unary(
                     op,
                     expr,
@@ -1486,7 +1487,7 @@ impl<'a> FfParser<'a> {
                     context_width,
                 )?;
             }
-            Expression::Ternary(cond, then, els) => {
+            Expression::Ternary(cond, then, els, _) => {
                 self.parse_ternary(
                     cond,
                     then,
@@ -1499,10 +1500,10 @@ impl<'a> FfParser<'a> {
                     context_width,
                 )?;
             }
-            Expression::Concatenation(exprs) => {
+            Expression::Concatenation(exprs, _) => {
                 self.parse_concatenation(exprs, targets, domain, convert, sources, ir_builder)?;
             }
-            Expression::ArrayLiteral(items) => {
+            Expression::ArrayLiteral(items, _) => {
                 self.parse_array_literal(
                     items,
                     context_width,
@@ -1513,7 +1514,7 @@ impl<'a> FfParser<'a> {
                     ir_builder,
                 )?;
             }
-            Expression::StructConstructor(ty, fields) => {
+            Expression::StructConstructor(ty, fields, _) => {
                 self.parse_struct_constructor(
                     ty,
                     fields,

@@ -8,8 +8,9 @@ use crate::{
     },
 };
 use veryl_analyzer::ir::{
-    ArrayLiteralItem, Expression, Factor, Statement, VarId, VarIndex, VarSelect,
+    ArrayLiteralItem, Comptime, Expression, Factor, Statement, VarId, VarIndex, VarSelect,
 };
+use veryl_parser::token_range::TokenRange;
 
 impl<'a> FfParser<'a> {
     fn apply_function_call_to_state(
@@ -77,7 +78,6 @@ impl<'a> FfParser<'a> {
                             VarIndex::default(),
                             VarSelect::default(),
                             dst.comptime.clone(),
-                            dst.token,
                         )))
                     });
                 let merged = build_partial_assign_expr(self.module, dst, expr, old_value)?;
@@ -106,7 +106,7 @@ impl<'a> FfParser<'a> {
     ) -> Expression {
         match expr {
             Expression::Term(factor) => match factor.as_ref() {
-                Factor::Variable(var_id, index, select, _, _)
+                Factor::Variable(var_id, index, select, _)
                     if index.0.is_empty() && select.0.is_empty() && select.1.is_none() =>
                 {
                     if let Some(bound) = defs.get(var_id) {
@@ -114,29 +114,33 @@ impl<'a> FfParser<'a> {
                     }
                     expr.clone()
                 }
-                Factor::FunctionCall(call, token) => {
+                Factor::FunctionCall(call) => {
                     let mut call = call.clone();
                     for input_expr in call.inputs.values_mut() {
                         *input_expr = Self::substitute_function_expr(input_expr, defs);
                     }
-                    Expression::Term(Box::new(Factor::FunctionCall(call, *token)))
+                    Expression::Term(Box::new(Factor::FunctionCall(call)))
                 }
                 _ => expr.clone(),
             },
-            Expression::Binary(lhs, op, rhs) => Expression::Binary(
+            Expression::Binary(lhs, op, rhs, _) => Expression::Binary(
                 Box::new(Self::substitute_function_expr(lhs, defs)),
                 *op,
                 Box::new(Self::substitute_function_expr(rhs, defs)),
+                Box::new(Comptime::create_unknown(TokenRange::default())),
             ),
-            Expression::Unary(op, inner) => {
-                Expression::Unary(*op, Box::new(Self::substitute_function_expr(inner, defs)))
-            }
-            Expression::Ternary(cond, then_expr, else_expr) => Expression::Ternary(
+            Expression::Unary(op, inner, _) => Expression::Unary(
+                *op,
+                Box::new(Self::substitute_function_expr(inner, defs)),
+                Box::new(Comptime::create_unknown(TokenRange::default())),
+            ),
+            Expression::Ternary(cond, then_expr, else_expr, _) => Expression::Ternary(
                 Box::new(Self::substitute_function_expr(cond, defs)),
                 Box::new(Self::substitute_function_expr(then_expr, defs)),
                 Box::new(Self::substitute_function_expr(else_expr, defs)),
+                Box::new(Comptime::create_unknown(TokenRange::default())),
             ),
-            Expression::Concatenation(parts) => Expression::Concatenation(
+            Expression::Concatenation(parts, _) => Expression::Concatenation(
                 parts
                     .iter()
                     .map(|(x, rep)| {
@@ -147,8 +151,9 @@ impl<'a> FfParser<'a> {
                         )
                     })
                     .collect(),
+                Box::new(Comptime::create_unknown(TokenRange::default())),
             ),
-            Expression::ArrayLiteral(items) => Expression::ArrayLiteral(
+            Expression::ArrayLiteral(items, _) => Expression::ArrayLiteral(
                 items
                     .iter()
                     .map(|item| match item {
@@ -162,13 +167,15 @@ impl<'a> FfParser<'a> {
                         }
                     })
                     .collect(),
+                Box::new(Comptime::create_unknown(TokenRange::default())),
             ),
-            Expression::StructConstructor(ty, fields) => Expression::StructConstructor(
+            Expression::StructConstructor(ty, fields, _) => Expression::StructConstructor(
                 ty.clone(),
                 fields
                     .iter()
                     .map(|(name, x)| (*name, Self::substitute_function_expr(x, defs)))
                     .collect(),
+                Box::new(Comptime::create_unknown(TokenRange::default())),
             ),
         }
     }
@@ -193,6 +200,7 @@ impl<'a> FfParser<'a> {
                             Box::new(cond.clone()),
                             Box::new(then_expr),
                             Box::new(else_expr.clone()),
+                            Box::new(Comptime::create_unknown(TokenRange::default())),
                         ),
                     );
                 }
@@ -234,7 +242,6 @@ impl<'a> FfParser<'a> {
                                     VarIndex::default(),
                                     VarSelect::default(),
                                     dst.comptime.clone(),
-                                    dst.token,
                                 )))
                             });
                         let merged =
@@ -350,7 +357,6 @@ impl<'a> FfParser<'a> {
                                     VarIndex::default(),
                                     VarSelect::default(),
                                     dst.comptime.clone(),
-                                    dst.token,
                                 )))
                             });
                         let merged =
@@ -386,6 +392,7 @@ impl<'a> FfParser<'a> {
                             Box::new(cond),
                             Box::new(then_expr),
                             Box::new(else_expr),
+                            Box::new(Comptime::create_unknown(TokenRange::default())),
                         ))),
                         _ => Ok(None),
                     }

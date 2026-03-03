@@ -2,7 +2,8 @@ use crate::BigUint;
 use crate::parser::{ParserError, resolve_dims};
 use num_traits::Zero;
 use veryl_analyzer::ir::{
-    AssignDestination, Expression, Factor, Module, Op, VarId, VarIndex, VarSelect, VarSelectOp,
+    AssignDestination, Comptime, Expression, Factor, Module, Op, VarId, VarIndex, VarSelect,
+    VarSelectOp,
 };
 use veryl_analyzer::value::Value;
 use veryl_parser::token_range::TokenRange;
@@ -13,10 +14,10 @@ use crate::ir::BitAccess;
 pub fn eval_constexpr(expr: &Expression) -> Option<BigUint> {
     match expr {
         Expression::Term(factor) => match factor.as_ref() {
-            Factor::Variable(_var_id, _var_index, _var_select, comptime, _token_range) => {
+            Factor::Variable(_var_id, _var_index, _var_select, comptime) if comptime.is_const => {
                 comptime.get_value().ok().map(|e| e.payload().into_owned())
             }
-            Factor::Value(comptime, _token_range) => {
+            Factor::Value(comptime) if comptime.is_const || comptime.evaluated => {
                 comptime.get_value().ok().map(|e| e.payload().into_owned())
             }
             // TODO: There are cases where constant folding can be properly performed
@@ -277,26 +278,28 @@ pub fn build_partial_assign_expr(
     let mask_big = (BigUint::from(1u64) << access_width) - BigUint::from(1u64);
     let mask_expr = Expression::create_value(Value::new_biguint(mask_big, total_width, false), token);
 
+    let ct = || Box::new(Comptime::create_unknown(token));
+
     // Build: shifted_mask = mask << lsb  (skip shift when lsb == 0)
     let shifted_mask = if lsb == 0 {
         mask_expr
     } else {
         let lsb_expr = Expression::create_value(Value::new(lsb as u64, total_width, false), token);
-        Expression::Binary(Box::new(mask_expr), Op::LogicShiftL, Box::new(lsb_expr))
+        Expression::Binary(Box::new(mask_expr), Op::LogicShiftL, Box::new(lsb_expr), ct())
     };
 
     // Build: ~shifted_mask
-    let inv_mask = Expression::Unary(Op::BitNot, Box::new(shifted_mask));
+    let inv_mask = Expression::Unary(Op::BitNot, Box::new(shifted_mask), ct());
 
     // Build: old_value & ~shifted_mask  (clear the target bits)
-    let cleared = Expression::Binary(Box::new(old_value), Op::BitAnd, Box::new(inv_mask));
+    let cleared = Expression::Binary(Box::new(old_value), Op::BitAnd, Box::new(inv_mask), ct());
 
     // Build: rhs << lsb  (skip shift when lsb == 0)
     let shifted_rhs = if lsb == 0 {
         rhs
     } else {
         let lsb_expr = Expression::create_value(Value::new(lsb as u64, total_width, false), token);
-        Expression::Binary(Box::new(rhs), Op::LogicShiftL, Box::new(lsb_expr))
+        Expression::Binary(Box::new(rhs), Op::LogicShiftL, Box::new(lsb_expr), ct())
     };
 
     // Build: (old_value & ~shifted_mask) | (rhs << lsb)
@@ -304,5 +307,6 @@ pub fn build_partial_assign_expr(
         Box::new(cleared),
         Op::BitOr,
         Box::new(shifted_rhs),
+        ct(),
     ))
 }

@@ -3,7 +3,7 @@ use veryl_analyzer::ir::{ArrayLiteralItem, Expression, Factor, Op, ValueVariant}
 /// Calculate the context width for a given expression and parent context.
 pub fn get_context_width(expr: &Expression, parent_width: Option<usize>) -> Option<usize> {
     match expr {
-        Expression::Binary(lhs, op, rhs) => {
+        Expression::Binary(lhs, op, rhs, _) => {
             if matches!(op, Op::As) {
                 // `as` cast: RHS is type metadata, doesn't inherit context width.
                 return None;
@@ -41,7 +41,7 @@ pub fn get_context_width(expr: &Expression, parent_width: Option<usize>) -> Opti
                 .or(rhs_width)
                 .map(|lw| lw.max(rhs_width.unwrap_or(lw)))
         }
-        Expression::Unary(op, expr) => {
+        Expression::Unary(op, expr, _) => {
             if matches!(
                 op,
                 Op::BitAnd
@@ -56,7 +56,7 @@ pub fn get_context_width(expr: &Expression, parent_width: Option<usize>) -> Opti
             }
             get_context_width(expr, parent_width)
         }
-        Expression::Ternary(_cond, then, els) => {
+        Expression::Ternary(_cond, then, els, _) => {
             let lw = get_context_width(then, parent_width);
             let rw = get_context_width(els, parent_width);
             lw.or(rw).map(|w| lw.unwrap_or(w).max(rw.unwrap_or(w)))
@@ -74,7 +74,7 @@ pub fn get_context_width(expr: &Expression, parent_width: Option<usize>) -> Opti
 pub fn get_expr_width(expr: &Expression) -> Option<usize> {
     match expr {
         Expression::Term(factor) => get_factor_width(factor),
-        Expression::Binary(lhs, op, rhs) => match op {
+        Expression::Binary(lhs, op, rhs, _) => match op {
             Op::Eq
             | Op::Ne
             | Op::Less
@@ -95,7 +95,7 @@ pub fn get_expr_width(expr: &Expression) -> Option<usize> {
                 lw.or(rw).map(|w| lw.unwrap_or(w).max(rw.unwrap_or(w)))
             }
         },
-        Expression::Unary(op, expr) => match op {
+        Expression::Unary(op, expr, _) => match op {
             Op::BitAnd
             | Op::BitOr
             | Op::BitXor
@@ -105,18 +105,18 @@ pub fn get_expr_width(expr: &Expression) -> Option<usize> {
             | Op::LogicNot => Some(1),
             _ => get_expr_width(expr),
         },
-        Expression::Ternary(_cond, then, els) => {
+        Expression::Ternary(_cond, then, els, _) => {
             let lw = get_expr_width(then);
             let rw = get_expr_width(els);
             lw.or(rw).map(|w| lw.unwrap_or(w).max(rw.unwrap_or(w)))
         }
-        Expression::Concatenation(exprs) => {
+        Expression::Concatenation(exprs, _) => {
             let mut total = 0;
             for (sub, rep) in exprs {
                 let w = get_expr_width(sub)?;
                 let count = if let Some(rep_expr) = rep {
                     if let Expression::Term(f) = rep_expr {
-                        if let Factor::Value(v, _) = f.as_ref() {
+                        if let Factor::Value(v) = f.as_ref() {
                             v.get_value().ok().and_then(|val| val.to_usize())?
                         } else {
                             return None;
@@ -131,7 +131,7 @@ pub fn get_expr_width(expr: &Expression) -> Option<usize> {
             }
             Some(total)
         }
-        Expression::ArrayLiteral(items) => {
+        Expression::ArrayLiteral(items, _) => {
             let mut total = 0;
             for item in items {
                 match item {
@@ -139,7 +139,7 @@ pub fn get_expr_width(expr: &Expression) -> Option<usize> {
                         let w = get_expr_width(expr)?;
                         let count = if let Some(rep_expr) = rep {
                             if let Expression::Term(f) = rep_expr {
-                                if let Factor::Value(v, _) = f.as_ref() {
+                                if let Factor::Value(v) = f.as_ref() {
                                     v.get_value().ok().and_then(|val| val.to_usize())?
                                 } else {
                                     return None;
@@ -157,7 +157,7 @@ pub fn get_expr_width(expr: &Expression) -> Option<usize> {
             }
             Some(total)
         }
-        Expression::StructConstructor(ty, _) => {
+        Expression::StructConstructor(ty, _, _) => {
             ty.total_width().map(|w| ty.array.total().unwrap_or(1) * w)
         }
     }
@@ -165,7 +165,7 @@ pub fn get_expr_width(expr: &Expression) -> Option<usize> {
 
 fn get_factor_width(factor: &Factor) -> Option<usize> {
     match factor {
-        Factor::Value(comp, _) | Factor::Variable(_, _, _, comp, _) => {
+        Factor::Value(comp) | Factor::Variable(_, _, _, comp) => {
             if let ValueVariant::Numeric(v) = &comp.value {
                 if comp.r#type.total_width().is_none() {
                     return v.to_usize();
@@ -175,11 +175,9 @@ fn get_factor_width(factor: &Factor) -> Option<usize> {
                 .total_width()
                 .map(|w| comp.r#type.array.total().unwrap_or(1) * w)
         }
-        Factor::FunctionCall(call, _) => call.ret.as_ref().and_then(|x| {
-            x.r#type
-                .total_width()
-                .map(|w| x.r#type.array.total().unwrap_or(1) * w)
-        }),
+        Factor::FunctionCall(call) => call.comptime.r#type
+            .total_width()
+            .map(|w| call.comptime.r#type.array.total().unwrap_or(1) * w),
         _ => None,
     }
 }

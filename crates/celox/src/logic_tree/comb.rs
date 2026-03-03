@@ -12,9 +12,10 @@ use crate::{
 use malachite_bigint::BigUint;
 use num_traits::ToPrimitive as _;
 use veryl_analyzer::ir::{
-    ArrayLiteralItem, AssignStatement, CombDeclaration, Expression, Factor, IfStatement, Module,
-    Op, Statement, ValueVariant, VarId, VarIndex, VarSelect,
+    ArrayLiteralItem, AssignStatement, CombDeclaration, Comptime, Expression, Factor, IfStatement,
+    Module, Op, Statement, ValueVariant, VarId, VarIndex, VarSelect,
 };
+use veryl_parser::token_range::TokenRange;
 
 // SymbolicStore: Maps variable IDs to their current symbolic representation.
 // Each variable is managed by a RangeStore, which tracks bit-ranges and their associated SLT nodes.
@@ -610,7 +611,7 @@ fn eval_assign(
             crate::parser::bitaccess::get_access_width(module, dst.id, &dst.index, &dst.select)
         })
         .sum::<Result<usize, ParserError>>()?;
-    let ((rhs_expr, rhs_sources), rhs_bounds) = if let Expression::ArrayLiteral(items) = &stmt.expr
+    let ((rhs_expr, rhs_sources), rhs_bounds) = if let Expression::ArrayLiteral(items, _) = &stmt.expr
     {
         eval_array_literal_expression(module, &store, items, Some(rhs_expected_width), arena)?
     } else {
@@ -1055,7 +1056,7 @@ fn extract_function_return_expr(
     fn substitute_expr(expr: &Expression, defs: &HashMap<VarId, Expression>) -> Expression {
         match expr {
             Expression::Term(factor) => match factor.as_ref() {
-                Factor::Variable(var_id, index, select, _, _)
+                Factor::Variable(var_id, index, select, _)
                     if index.0.is_empty() && select.0.is_empty() && select.1.is_none() =>
                 {
                     if let Some(bound) = defs.get(var_id) {
@@ -1063,29 +1064,31 @@ fn extract_function_return_expr(
                     }
                     expr.clone()
                 }
-                Factor::FunctionCall(call, token) => {
+                Factor::FunctionCall(call) => {
                     let mut call = call.clone();
                     for input_expr in call.inputs.values_mut() {
                         *input_expr = substitute_expr(input_expr, defs);
                     }
-                    Expression::Term(Box::new(Factor::FunctionCall(call, *token)))
+                    Expression::Term(Box::new(Factor::FunctionCall(call)))
                 }
                 _ => expr.clone(),
             },
-            Expression::Binary(lhs, op, rhs) => Expression::Binary(
+            Expression::Binary(lhs, op, rhs, _) => Expression::Binary(
                 Box::new(substitute_expr(lhs, defs)),
                 *op,
                 Box::new(substitute_expr(rhs, defs)),
+                Box::new(Comptime::create_unknown(TokenRange::default())),
             ),
-            Expression::Unary(op, inner) => {
-                Expression::Unary(*op, Box::new(substitute_expr(inner, defs)))
+            Expression::Unary(op, inner, _) => {
+                Expression::Unary(*op, Box::new(substitute_expr(inner, defs)), Box::new(Comptime::create_unknown(TokenRange::default())))
             }
-            Expression::Ternary(cond, then_expr, else_expr) => Expression::Ternary(
+            Expression::Ternary(cond, then_expr, else_expr, _) => Expression::Ternary(
                 Box::new(substitute_expr(cond, defs)),
                 Box::new(substitute_expr(then_expr, defs)),
                 Box::new(substitute_expr(else_expr, defs)),
+                Box::new(Comptime::create_unknown(TokenRange::default())),
             ),
-            Expression::Concatenation(parts) => Expression::Concatenation(
+            Expression::Concatenation(parts, _) => Expression::Concatenation(
                 parts
                     .iter()
                     .map(|(x, rep)| {
@@ -1095,8 +1098,9 @@ fn extract_function_return_expr(
                         )
                     })
                     .collect(),
+                Box::new(Comptime::create_unknown(TokenRange::default())),
             ),
-            Expression::ArrayLiteral(items) => Expression::ArrayLiteral(
+            Expression::ArrayLiteral(items, _) => Expression::ArrayLiteral(
                 items
                     .iter()
                     .map(|item| match item {
@@ -1109,13 +1113,15 @@ fn extract_function_return_expr(
                         }
                     })
                     .collect(),
+                Box::new(Comptime::create_unknown(TokenRange::default())),
             ),
-            Expression::StructConstructor(ty, fields) => Expression::StructConstructor(
+            Expression::StructConstructor(ty, fields, _) => Expression::StructConstructor(
                 ty.clone(),
                 fields
                     .iter()
                     .map(|(name, x)| (*name, substitute_expr(x, defs)))
                     .collect(),
+                Box::new(Comptime::create_unknown(TokenRange::default())),
             ),
         }
     }
@@ -1168,7 +1174,6 @@ fn extract_function_return_expr(
                                 VarIndex::default(),
                                 VarSelect::default(),
                                 dst.comptime.clone(),
-                                dst.token,
                             )))
                         });
                     let merged =
@@ -1201,6 +1206,7 @@ fn extract_function_return_expr(
                         Box::new(cond),
                         Box::new(then_expr),
                         Box::new(else_expr),
+                        Box::new(Comptime::create_unknown(TokenRange::default())),
                     ))),
                     _ => Ok(None),
                 }
@@ -1312,11 +1318,11 @@ pub fn eval_expression(
 ) -> Result<((NodeId, HashSet<VarAtomBase<VarId>>), BoundaryMap<VarId>), ParserError> {
     match expr {
         Expression::Term(factor) => eval_factor(module, store, factor, arena, context_width),
-        Expression::Binary(lhs, op, rhs) => {
+        Expression::Binary(lhs, op, rhs, _) => {
             let (lhs_context_width, rhs_context_width) = if matches!(op, Op::As) {
                 // `as` cast: LHS inherits target width from RHS type/numeric, RHS is metadata
                 let target_width = if let Expression::Term(f) = rhs.as_ref() {
-                    if let Factor::Value(v, _) = f.as_ref() {
+                    if let Factor::Value(v) = f.as_ref() {
                         match &v.value {
                             ValueVariant::Type(ty) => ty.total_width(),
                             ValueVariant::Numeric(n) => n.to_usize(),
@@ -1365,7 +1371,7 @@ pub fn eval_expression(
 
                 // For RHS, if it's a type or numeric width, we don't evaluate it as an expression.
                 let r_bounds = if let Expression::Term(f) = rhs.as_ref() {
-                    if let Factor::Value(v, _) = f.as_ref() {
+                    if let Factor::Value(v) = f.as_ref() {
                         if matches!(v.value, ValueVariant::Type(_) | ValueVariant::Numeric(_)) {
                             BoundaryMap::default()
                         } else {
@@ -1381,7 +1387,7 @@ pub fn eval_expression(
                 // Extract signedness and width from RHS type/numeric
                 let (target_width, target_signed) = match rhs.as_ref() {
                     Expression::Term(f) => match f.as_ref() {
-                        Factor::Value(v, _) => match &v.value {
+                        Factor::Value(v) => match &v.value {
                             ValueVariant::Type(ty) => (ty.total_width(), ty.signed),
                             ValueVariant::Numeric(n) => (n.to_usize(), false),
                             _ => (None, false),
@@ -1564,7 +1570,7 @@ pub fn eval_expression(
 
             Ok(((result_node, sources), merge_boundaries(l_bounds, r_bounds)))
         }
-        Expression::Concatenation(exprs) => {
+        Expression::Concatenation(exprs, _) => {
             let mut parts = Vec::new();
             let mut all_bounds = BoundaryMap::default();
             let mut total_sources = HashSet::default();
@@ -1598,7 +1604,7 @@ pub fn eval_expression(
                 all_bounds,
             ))
         }
-        Expression::Unary(op, expr) => {
+        Expression::Unary(op, expr, _) => {
             let ((expr, sources), bounds) = eval_expression(module, store, expr, arena, None)?;
             // Reduction Nand/Nor/Xnor は既存のリダクション + Not に分解
             let result_node = match op {
@@ -1618,7 +1624,7 @@ pub fn eval_expression(
             };
             Ok(((result_node, sources), bounds))
         }
-        Expression::Ternary(cond, then_expr, else_expr) => {
+        Expression::Ternary(cond, then_expr, else_expr, _) => {
             let ((cond_expr, cond_sources), cond_bounds) =
                 eval_expression(module, store, cond, arena, context_width)?;
             let ((then_expr, then_sources), then_bounds) =
@@ -1642,7 +1648,7 @@ pub fn eval_expression(
                 merge_boundaries(cond_bounds, merge_boundaries(then_bounds, else_bounds)),
             ))
         }
-        Expression::StructConstructor(ty, fields) => {
+        Expression::StructConstructor(ty, fields, _) => {
             let mut parts = Vec::new();
             let mut all_bounds = BoundaryMap::default();
             let mut total_sources = HashSet::default();
@@ -1689,7 +1695,7 @@ pub fn eval_expression(
                 all_bounds,
             ))
         }
-        Expression::ArrayLiteral(items) => {
+        Expression::ArrayLiteral(items, _) => {
             eval_array_literal_expression(module, store, items, None, arena)
         }
     }
@@ -1703,7 +1709,7 @@ fn eval_factor(
     context_width: Option<usize>,
 ) -> Result<((NodeId, HashSet<VarAtomBase<VarId>>), BoundaryMap<VarId>), ParserError> {
     match factor {
-        Factor::Variable(var_id, index, select, _, _) => {
+        Factor::Variable(var_id, index, select, _) => {
             let is_static_access = crate::parser::bitaccess::is_static_access(index, select);
             if is_static_access {
                 let access = eval_var_select(module, *var_id, index, select)?;
@@ -1864,7 +1870,7 @@ fn eval_factor(
                 Ok(((extracted_expr, all_sources), all_bounds))
             }
         }
-        Factor::Value(v, _) => {
+        Factor::Value(v) => {
             let val = v.get_value().unwrap();
             let mask_xz = val.mask_xz().into_owned();
             let payload = val.payload().into_owned();
@@ -1883,12 +1889,12 @@ fn eval_factor(
                 BoundaryMap::default(),
             ))
         }
-        Factor::SystemFunctionCall(call, _) => Err(ParserError::UnsupportedCombLowering {
+        Factor::SystemFunctionCall(call) => Err(ParserError::UnsupportedCombLowering {
             feature: "system function call in comb expression",
             detail: format!("module `{}`: {call}", module.name),
         }),
-        Factor::FunctionCall(call, _) => eval_function_call_expression(module, store, call, arena),
-        Factor::Anonymous(_) | Factor::Unresolved(_, _) | Factor::Unknown(_) => {
+        Factor::FunctionCall(call) => eval_function_call_expression(module, store, call, arena),
+        Factor::Anonymous(_) | Factor::Unknown(_) => {
             Err(ParserError::UnsupportedCombLowering {
                 feature: "unresolved factor in comb expression",
                 detail: format!("{:?}", factor),
@@ -1957,7 +1963,7 @@ fn is_signed(module: &Module, expr: NodeId, arena: &SLTNodeArena<VarId>) -> bool
 }
 
 fn cast_target_signed(expr: &Expression) -> Option<bool> {
-    let Expression::Binary(_, op, rhs) = expr else {
+    let Expression::Binary(_, op, rhs, _) = expr else {
         return None;
     };
     if !matches!(op, Op::As) {
@@ -1967,7 +1973,7 @@ fn cast_target_signed(expr: &Expression) -> Option<bool> {
     let Expression::Term(factor) = rhs.as_ref() else {
         return None;
     };
-    let Factor::Value(comptime, _) = factor.as_ref() else {
+    let Factor::Value(comptime) = factor.as_ref() else {
         return None;
     };
     match &comptime.value {

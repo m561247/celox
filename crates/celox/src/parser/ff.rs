@@ -55,7 +55,7 @@ impl<'a> FfParser<'a> {
 
     fn get_constant_value(&self, expr: &Expression) -> Option<u64> {
         if let Expression::Term(factor) = expr
-            && let Factor::Value(comptime, _) = factor.as_ref()
+            && let Factor::Value(comptime) = factor.as_ref()
             && let Ok(val) = comptime.get_value()
         {
             return val.payload().to_u64();
@@ -67,7 +67,7 @@ impl<'a> FfParser<'a> {
         let Expression::Term(factor) = expr else {
             return None;
         };
-        let Factor::Value(comptime, _) = factor.as_ref() else {
+        let Factor::Value(comptime) = factor.as_ref() else {
             return None;
         };
         match &comptime.value {
@@ -88,7 +88,7 @@ impl<'a> FfParser<'a> {
 
     fn get_expression_width(&self, expr: &Expression) -> usize {
         match expr {
-            Expression::Binary(left, op, right) => {
+            Expression::Binary(left, op, right, _) => {
                 let lw = self.get_expression_width(left);
                 let rw = self.get_expression_width(right);
                 match op {
@@ -104,7 +104,7 @@ impl<'a> FfParser<'a> {
                     _ => lw.max(rw),
                 }
             }
-            Expression::Unary(op, expr) => match op {
+            Expression::Unary(op, expr, _) => match op {
                 Op::LogicNot
                 | Op::BitAnd
                 | Op::BitOr
@@ -115,10 +115,10 @@ impl<'a> FfParser<'a> {
                 _ => self.get_expression_width(expr),
             },
             Expression::Term(factor) => self.get_factor_width(factor),
-            Expression::Ternary(_, then, els) => self
+            Expression::Ternary(_, then, els, _) => self
                 .get_expression_width(then)
                 .max(self.get_expression_width(els)),
-            Expression::Concatenation(exprs) => {
+            Expression::Concatenation(exprs, _) => {
                 let mut total = 0;
                 for (expr, replication) in exprs {
                     let w = self.get_expression_width(expr);
@@ -137,24 +137,24 @@ impl<'a> FfParser<'a> {
 
     fn get_factor_width(&self, factor: &Factor) -> usize {
         match factor {
-            Factor::Variable(var_id, index, select, _, _) => {
+            Factor::Variable(var_id, index, select, _) => {
                 if let Ok(access) = eval_var_select(self.module, *var_id, index, select) {
                     access.msb - access.lsb + 1
                 } else {
                     64
                 }
             }
-            Factor::Value(comptime, _) => {
+            Factor::Value(comptime) => {
                 if let Ok(v) = comptime.get_value() {
                     v.width()
                 } else {
                     64
                 }
             }
-            Factor::FunctionCall(call, _) => call
-                .ret
-                .as_ref()
-                .and_then(|x| x.r#type.total_width())
+            Factor::FunctionCall(call) => call
+                .comptime
+                .r#type
+                .total_width()
                 .unwrap_or(64),
             _ => 64,
         }
@@ -520,7 +520,7 @@ impl<'a> FfParser<'a> {
     fn collect_expr_output_var_ids(expr: &Expression) -> Vec<VarId> {
         match expr {
             Expression::Term(factor) => {
-                if let Factor::FunctionCall(call, _) = factor.as_ref() {
+                if let Factor::FunctionCall(call) = factor.as_ref() {
                     call.outputs
                         .values()
                         .flat_map(|dsts| dsts.iter().map(|d| d.id))
@@ -529,13 +529,13 @@ impl<'a> FfParser<'a> {
                     vec![]
                 }
             }
-            Expression::Binary(lhs, _, rhs) => {
+            Expression::Binary(lhs, _, rhs, _) => {
                 let mut v = Self::collect_expr_output_var_ids(lhs);
                 v.extend(Self::collect_expr_output_var_ids(rhs));
                 v
             }
-            Expression::Unary(_, inner) => Self::collect_expr_output_var_ids(inner),
-            Expression::Ternary(cond, then_e, else_e) => {
+            Expression::Unary(_, inner, _) => Self::collect_expr_output_var_ids(inner),
+            Expression::Ternary(cond, then_e, else_e, _) => {
                 let mut v = Self::collect_expr_output_var_ids(cond);
                 v.extend(Self::collect_expr_output_var_ids(then_e));
                 v.extend(Self::collect_expr_output_var_ids(else_e));
