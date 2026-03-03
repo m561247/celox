@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772571516261,
+  "lastUpdate": 1772571516855,
   "repoUrl": "https://github.com/celox-sim/celox",
   "entries": {
     "Rust Benchmarks": [
@@ -3891,6 +3891,177 @@ window.BENCHMARK_DATA = {
             "name": "ts/tick_x10000_with_optimize",
             "value": 4.029598999996476,
             "range": "± 0.5%",
+            "unit": "ms",
+            "extra": "3 samples"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "tignear+m@gmail.com",
+            "name": "tignear",
+            "username": "tignear"
+          },
+          "committer": {
+            "email": "tignear+m@gmail.com",
+            "name": "tignear",
+            "username": "tignear"
+          },
+          "distinct": true,
+          "id": "e743cbc7e8b0ffc86ba7eda6fa854313fe5ff267",
+          "message": "Rewrite benchmark dashboard with tab-based layout and mini-chart grid\n\nReplace the flat checkbox list + single shared chart with a tab-based UI\n(Counter, Std Library, API, Optimize) and a responsive 2-column grid of\nmini-charts. Each card groups the same operation across runtimes (max 3\nlines: Rust/TS/Verilator) with clickable Chart.js legends. Tabs use\npriority-based matching (API > Optimize > Stdlib > Counter) and sub-group\nsections for Std Library and API tabs.",
+          "timestamp": "2026-03-03T20:42:12Z",
+          "tree_id": "8a36ba14fc102b953283d48e8eca7c0650b2b4a2",
+          "url": "https://github.com/celox-sim/celox/commit/e743cbc7e8b0ffc86ba7eda6fa854313fe5ff267"
+        },
+        "date": 1772571516685,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "ts/simulation_build_top_n1000",
+            "value": 775.1585160000001,
+            "range": "± 0.6%",
+            "unit": "ms",
+            "extra": "3 samples"
+          },
+          {
+            "name": "ts/simulation_tick_top_n1000_x1",
+            "value": 0.000511182873542048,
+            "range": "± 0.1%",
+            "unit": "ms",
+            "extra": "978124 samples"
+          },
+          {
+            "name": "ts/simulation_tick_top_n1000_x1000000",
+            "value": 368.67410400000034,
+            "range": "± 0.7%",
+            "unit": "ms",
+            "extra": "3 samples"
+          },
+          {
+            "name": "ts/testbench_tick_top_n1000_x1",
+            "value": 0.0008404393648290873,
+            "range": "± 0.1%",
+            "unit": "ms",
+            "extra": "594927 samples"
+          },
+          {
+            "name": "ts/testbench_tick_top_n1000_x1000000",
+            "value": 715.2190183333345,
+            "range": "± 0.4%",
+            "unit": "ms",
+            "extra": "3 samples"
+          },
+          {
+            "name": "ts/testbench_array_tick_top_n1000_x1",
+            "value": 0.0008403117468694031,
+            "range": "± 0.1%",
+            "unit": "ms",
+            "extra": "595018 samples"
+          },
+          {
+            "name": "ts/testbench_array_tick_top_n1000_x1000000",
+            "value": 712.5215870000005,
+            "range": "± 1.5%",
+            "unit": "ms",
+            "extra": "3 samples"
+          },
+          {
+            "name": "ts/simulator_tick_x10000",
+            "value": 3.6799640000002305,
+            "range": "± 2.5%",
+            "unit": "ms",
+            "extra": "3 samples"
+          },
+          {
+            "name": "ts/simulation_step_x20000",
+            "value": 13.458135333334212,
+            "range": "± 0.8%",
+            "unit": "ms",
+            "extra": "3 samples"
+          },
+          {
+            "name": "ts/simulation_time_build_top_n1000",
+            "value": 776.9493563333357,
+            "range": "± 1.1%",
+            "unit": "ms",
+            "extra": "3 samples"
+          },
+          {
+            "name": "ts/simulation_time_step_x1",
+            "value": 0.0008145842238081306,
+            "range": "± 0.2%",
+            "unit": "ms",
+            "extra": "613811 samples"
+          },
+          {
+            "name": "ts/simulation_time_step_x1000000",
+            "value": 675.5520553333336,
+            "range": "± 0.5%",
+            "unit": "ms",
+            "extra": "3 samples"
+          },
+          {
+            "name": "ts/simulation_time_runUntil_1000000",
+            "value": 101.99991766666547,
+            "range": "± 0.4%",
+            "unit": "ms",
+            "extra": "3 samples"
+          },
+          {
+            "name": "ts/waitForCycles_x1000",
+            "value": 0.7218276666681049,
+            "range": "± 3.3%",
+            "unit": "ms",
+            "extra": "3 samples"
+          },
+          {
+            "name": "ts/manual_step_loop_x2000",
+            "value": 0.7106399999950858,
+            "range": "± 6.4%",
+            "unit": "ms",
+            "extra": "3 samples"
+          },
+          {
+            "name": "ts/runUntil_fast_path_100000",
+            "value": 4.3426536666665925,
+            "range": "± 2.3%",
+            "unit": "ms",
+            "extra": "3 samples"
+          },
+          {
+            "name": "ts/runUntil_guarded_100000",
+            "value": 8.932810999998765,
+            "range": "± 0.3%",
+            "unit": "ms",
+            "extra": "3 samples"
+          },
+          {
+            "name": "ts/build_without_optimize",
+            "value": 790.4810376666695,
+            "range": "± 6.0%",
+            "unit": "ms",
+            "extra": "3 samples"
+          },
+          {
+            "name": "ts/build_with_optimize",
+            "value": 778.3699546666637,
+            "range": "± 3.9%",
+            "unit": "ms",
+            "extra": "3 samples"
+          },
+          {
+            "name": "ts/tick_x10000_without_optimize",
+            "value": 3.744684333326101,
+            "range": "± 0.2%",
+            "unit": "ms",
+            "extra": "3 samples"
+          },
+          {
+            "name": "ts/tick_x10000_with_optimize",
+            "value": 3.8767506666627014,
+            "range": "± 1.6%",
             "unit": "ms",
             "extra": "3 samples"
           }
