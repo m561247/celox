@@ -262,11 +262,11 @@ impl SIRTranslator {
         let final_addr = state.builder.ins().iadd(final_addr, byte_offset_val);
 
         // 3. Dispatch functions based on physical width
-        let v_chunks = state.regs[src_reg].values().to_vec();
+        let v_chunks = state.regs[src_reg].load_value_chunks(state.builder);
         let m_chunks = if self.options.four_state {
-            match state.regs[src_reg].masks() {
-                Some(m) => m.to_vec(),
-                None => {
+            state.regs[src_reg]
+                .load_mask_chunks(state.builder)
+                .unwrap_or_else(|| {
                     // Source register is TwoState (e.g. from block params before full 4-state support)
                     // Generate zero masks for each value chunk
                     let s_phys_ty = get_cl_type(s_phys_width);
@@ -274,8 +274,7 @@ impl SIRTranslator {
                         .iter()
                         .map(|_| state.builder.ins().iconst(s_phys_ty, 0))
                         .collect()
-                }
-            }
+                })
         } else {
             vec![]
         };
