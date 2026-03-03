@@ -17,6 +17,7 @@ static void BM_simulation_eval_x1(benchmark::State &state) {
     for (auto _ : state) {
         top.i_word = input++;
         top.eval();
+        benchmark::DoNotOptimize(top.o_word);
     }
 }
 BENCHMARK(BM_simulation_eval_x1)
@@ -28,9 +29,15 @@ static void BM_simulation_eval_x1000000(benchmark::State &state) {
     VLinearSecTop top;
     uint64_t input = 0;
     for (auto _ : state) {
+        volatile uint64_t sink = 0;
         auto t0 = std::chrono::high_resolution_clock::now();
-        for (int i = 0; i < 1000000; i++) { top.i_word = input++; top.eval(); }
+        for (int i = 0; i < 1000000; i++) {
+            top.i_word = input++;
+            top.eval();
+            sink = top.o_word;
+        }
         auto t1 = std::chrono::high_resolution_clock::now();
+        (void)sink;
         state.SetIterationTime(std::chrono::duration<double>(t1 - t0).count());
     }
 }

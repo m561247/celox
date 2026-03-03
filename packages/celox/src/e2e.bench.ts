@@ -463,8 +463,9 @@ describe("stdlib-linear-sec", () => {
     sim.dispose();
   });
 
+  let linearSecInput = 0n;
   bench("simulation_eval_linear_sec_p6_x1", () => {
-    sim.dut.i_word = BigInt(Math.floor(Math.random() * 0x1ffffffffffffff));
+    sim.dut.i_word = linearSecInput++;
     // biome-ignore lint: read to measure eval
     sim.dut.o_word;
   });
@@ -472,8 +473,9 @@ describe("stdlib-linear-sec", () => {
   bench(
     "simulation_eval_linear_sec_p6_x1000000",
     () => {
+      let input = 0n;
       for (let i = 0; i < 1_000_000; i++) {
-        sim.dut.i_word = BigInt(i);
+        sim.dut.i_word = input++;
         // biome-ignore lint: read to measure eval
         sim.dut.o_word;
       }
@@ -484,8 +486,9 @@ describe("stdlib-linear-sec", () => {
   bench(
     "testbench_eval_linear_sec_p6_x1000000",
     () => {
+      let input = 0n;
       for (let i = 0; i < 1_000_000; i++) {
-        sim.dut.i_word = BigInt(i);
+        sim.dut.i_word = input++;
         // biome-ignore lint: read corrected flag
         sim.dut.o_corrected;
       }
@@ -528,8 +531,9 @@ describe("stdlib-countones", () => {
     sim.dispose();
   });
 
+  let countonesInput = 0n;
   bench("simulation_eval_countones_w64_x1", () => {
-    sim.dut.i_data = BigInt(Math.floor(Math.random() * Number.MAX_SAFE_INTEGER));
+    sim.dut.i_data = countonesInput++;
     // biome-ignore lint: read to measure eval
     sim.dut.o_ones;
   });
@@ -537,8 +541,9 @@ describe("stdlib-countones", () => {
   bench(
     "simulation_eval_countones_w64_x1000000",
     () => {
+      let input = 0n;
       for (let i = 0; i < 1_000_000; i++) {
-        sim.dut.i_data = BigInt(i);
+        sim.dut.i_data = input++;
         // biome-ignore lint: read to measure eval
         sim.dut.o_ones;
       }
