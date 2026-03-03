@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772557784441,
+  "lastUpdate": 1772562002365,
   "repoUrl": "https://github.com/celox-sim/celox",
   "entries": {
     "Rust Benchmarks": [
@@ -1013,6 +1013,162 @@ window.BENCHMARK_DATA = {
             "name": "rust/testbench_tick_gray_counter_w32_x1000000",
             "value": 37098.288,
             "range": "± 62.714 us",
+            "unit": "us"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "tignear+m@gmail.com",
+            "name": "tignear",
+            "username": "tignear"
+          },
+          "committer": {
+            "email": "tignear+m@gmail.com",
+            "name": "tignear",
+            "username": "tignear"
+          },
+          "distinct": true,
+          "id": "0f0c6ec79d1978cac82e3e3d187a1e3a2160ea0f",
+          "message": "Rebase veryl submodule onto upstream master and adapt to IR API changes\n\n- Update deps/veryl to upstream/master (10b3d0d0)\n- Add Box<Comptime> field to Expression variant patterns and constructors\n- Remove TokenRange from Factor::Variable/Value/FunctionCall patterns\n- Migrate FunctionCall.ret to FunctionCall.comptime\n- Guard eval_constexpr with is_const/evaluated checks to prevent\n  non-constant variables (now carrying Numeric Comptime) from being\n  treated as compile-time constants",
+          "timestamp": "2026-03-03T18:04:03Z",
+          "tree_id": "2f9bec6e79b3772a6749a12e3b33bcc493186ca6",
+          "url": "https://github.com/celox-sim/celox/commit/0f0c6ec79d1978cac82e3e3d187a1e3a2160ea0f"
+        },
+        "date": 1772562000755,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "rust/simulator_tick_x10000",
+            "value": 1592.938,
+            "range": "± 47.647 us",
+            "unit": "us"
+          },
+          {
+            "name": "rust/simulation_step_x20000",
+            "value": 9877.437,
+            "range": "± 28.260 us",
+            "unit": "us"
+          },
+          {
+            "name": "rust/simulation_build_top_n1000",
+            "value": 744016.865,
+            "range": "± 6442.454 us",
+            "unit": "us"
+          },
+          {
+            "name": "rust/simulation_tick_top_n1000_x1",
+            "value": 0.158,
+            "range": "± 0.000 us",
+            "unit": "us"
+          },
+          {
+            "name": "rust/simulation_tick_top_n1000_x1000000",
+            "value": 159426.451,
+            "range": "± 385.455 us",
+            "unit": "us"
+          },
+          {
+            "name": "rust/testbench_tick_top_n1000_x1",
+            "value": 0.178,
+            "range": "± 0.001 us",
+            "unit": "us"
+          },
+          {
+            "name": "rust/testbench_tick_top_n1000_x1000000",
+            "value": 322499.931,
+            "range": "± 423.122 us",
+            "unit": "us"
+          },
+          {
+            "name": "rust/simulation_build_linear_sec_p6",
+            "value": 219828.441,
+            "range": "± 1641.302 us",
+            "unit": "us"
+          },
+          {
+            "name": "rust/simulation_eval_linear_sec_p6_x1",
+            "value": 1.063,
+            "range": "± 0.005 us",
+            "unit": "us"
+          },
+          {
+            "name": "rust/simulation_eval_linear_sec_p6_x1000000",
+            "value": 1062084.653,
+            "range": "± 1404.273 us",
+            "unit": "us"
+          },
+          {
+            "name": "rust/testbench_eval_linear_sec_p6_x1000000",
+            "value": 1050918.689,
+            "range": "± 1451.251 us",
+            "unit": "us"
+          },
+          {
+            "name": "rust/simulation_build_countones_w64",
+            "value": 101967.437,
+            "range": "± 1912.320 us",
+            "unit": "us"
+          },
+          {
+            "name": "rust/simulation_eval_countones_w64_x1",
+            "value": 0.417,
+            "range": "± 0.001 us",
+            "unit": "us"
+          },
+          {
+            "name": "rust/simulation_eval_countones_w64_x1000000",
+            "value": 422005.058,
+            "range": "± 708.314 us",
+            "unit": "us"
+          },
+          {
+            "name": "rust/simulation_build_std_counter_w32",
+            "value": 7967.393,
+            "range": "± 106.925 us",
+            "unit": "us"
+          },
+          {
+            "name": "rust/simulation_tick_std_counter_w32_x1",
+            "value": 0.008,
+            "range": "± 0.000 us",
+            "unit": "us"
+          },
+          {
+            "name": "rust/simulation_tick_std_counter_w32_x1000000",
+            "value": 8767.083,
+            "range": "± 156.149 us",
+            "unit": "us"
+          },
+          {
+            "name": "rust/testbench_tick_std_counter_w32_x1000000",
+            "value": 31608.056,
+            "range": "± 131.845 us",
+            "unit": "us"
+          },
+          {
+            "name": "rust/simulation_build_gray_counter_w32",
+            "value": 11388.873,
+            "range": "± 59.360 us",
+            "unit": "us"
+          },
+          {
+            "name": "rust/simulation_tick_gray_counter_w32_x1",
+            "value": 0.011,
+            "range": "± 0.000 us",
+            "unit": "us"
+          },
+          {
+            "name": "rust/simulation_tick_gray_counter_w32_x1000000",
+            "value": 12006.838,
+            "range": "± 29.054 us",
+            "unit": "us"
+          },
+          {
+            "name": "rust/testbench_tick_gray_counter_w32_x1000000",
+            "value": 36727.561,
+            "range": "± 60.536 us",
             "unit": "us"
           }
         ]
