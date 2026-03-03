@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772562002365,
+  "lastUpdate": 1772562002814,
   "repoUrl": "https://github.com/celox-sim/celox",
   "entries": {
     "Rust Benchmarks": [
@@ -4175,6 +4175,75 @@ window.BENCHMARK_DATA = {
           {
             "name": "verilator/testbench_eval_linear_sec_p6_x1000000",
             "value": 36221.237,
+            "unit": "us"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "tignear+m@gmail.com",
+            "name": "tignear",
+            "username": "tignear"
+          },
+          "committer": {
+            "email": "tignear+m@gmail.com",
+            "name": "tignear",
+            "username": "tignear"
+          },
+          "distinct": true,
+          "id": "0f0c6ec79d1978cac82e3e3d187a1e3a2160ea0f",
+          "message": "Rebase veryl submodule onto upstream master and adapt to IR API changes\n\n- Update deps/veryl to upstream/master (10b3d0d0)\n- Add Box<Comptime> field to Expression variant patterns and constructors\n- Remove TokenRange from Factor::Variable/Value/FunctionCall patterns\n- Migrate FunctionCall.ret to FunctionCall.comptime\n- Guard eval_constexpr with is_const/evaluated checks to prevent\n  non-constant variables (now carrying Numeric Comptime) from being\n  treated as compile-time constants",
+          "timestamp": "2026-03-03T18:04:03Z",
+          "tree_id": "2f9bec6e79b3772a6749a12e3b33bcc493186ca6",
+          "url": "https://github.com/celox-sim/celox/commit/0f0c6ec79d1978cac82e3e3d187a1e3a2160ea0f"
+        },
+        "date": 1772562002655,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "verilator/simulation_build_top_n1000",
+            "value": 14460311.853,
+            "unit": "us"
+          },
+          {
+            "name": "verilator/simulation_build_linear_sec_p6",
+            "value": 1073910.624,
+            "unit": "us"
+          },
+          {
+            "name": "verilator/simulation_tick_top_n1000_x1",
+            "value": 0.3221742432676916,
+            "unit": "us"
+          },
+          {
+            "name": "verilator/simulation_tick_top_n1000_x1000000",
+            "value": 319221.5533333333,
+            "unit": "us"
+          },
+          {
+            "name": "verilator/testbench_tick_top_n1000_x1",
+            "value": 0.32020686484181327,
+            "unit": "us"
+          },
+          {
+            "name": "verilator/testbench_tick_top_n1000_x1000000",
+            "value": 318922.467,
+            "unit": "us"
+          },
+          {
+            "name": "verilator/simulation_eval_linear_sec_p6_x1",
+            "value": 0.03739479566235872,
+            "unit": "us"
+          },
+          {
+            "name": "verilator/simulation_eval_linear_sec_p6_x1000000",
+            "value": 37318.960666666666,
+            "unit": "us"
+          },
+          {
+            "name": "verilator/testbench_eval_linear_sec_p6_x1000000",
+            "value": 37201.595,
             "unit": "us"
           }
         ]
