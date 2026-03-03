@@ -42,8 +42,12 @@ jobs:
       - uses: actions/checkout@v4
       - uses: veryl-lang/setup-verilator@v1
 
+      - name: Install Google Benchmark
+        run: sudo apt-get install -y libbenchmark-dev
+
       - name: Run Verilator benchmarks
-        run: bash scripts/run-verilator-bench.sh | tee verilator-output.txt
+        shell: bash
+        run: set -o pipefail && bash scripts/run-verilator-bench.sh | tee verilator-output.txt
 
       - uses: actions/upload-artifact@v4
         with:
