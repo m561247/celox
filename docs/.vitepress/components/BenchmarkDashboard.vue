@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from "vue";
+import { ref, computed, onMounted } from "vue";
 import { Line } from "vue-chartjs";
 import {
   Chart as ChartJS,
@@ -49,75 +49,144 @@ interface SeriesPoint {
 }
 
 interface Series {
-  /** Unique key: "rust/simulation_tick_..." or "ts/simulation_tick_..." */
   key: string;
   benchName: string;
   runtime: "rust" | "ts" | "verilator" | "unknown";
-  category: string;
   points: SeriesPoint[];
 }
 
-// --- Category definitions ---
+interface ChartCard {
+  benchName: string;
+  title: string;
+  series: Series[];
+}
 
-const categories = [
+interface TabSection {
+  label: string;
+  cards: ChartCard[];
+}
+
+// --- Tab definitions ---
+
+interface TabDef {
+  key: string;
+  label: string;
+  match: (name: string) => boolean;
+  sections: (cards: ChartCard[]) => TabSection[];
+}
+
+function stdlibSections(cards: ChartCard[]): TabSection[] {
+  const groups: Record<string, ChartCard[]> = {
+    "Linear SEC (P=6)": [],
+    "Countones (W=64)": [],
+    "std::counter (W=32)": [],
+    "std::gray_counter (W=32)": [],
+  };
+
+  for (const card of cards) {
+    if (card.benchName.includes("linear_sec")) {
+      groups["Linear SEC (P=6)"].push(card);
+    } else if (card.benchName.includes("countones")) {
+      groups["Countones (W=64)"].push(card);
+    } else if (card.benchName.includes("gray_counter")) {
+      groups["std::gray_counter (W=32)"].push(card);
+    } else if (card.benchName.includes("std_counter")) {
+      groups["std::counter (W=32)"].push(card);
+    }
+  }
+
+  return Object.entries(groups)
+    .filter(([, c]) => c.length > 0)
+    .map(([label, c]) => ({ label, cards: c }));
+}
+
+function apiSections(cards: ChartCard[]): TabSection[] {
+  const groups: Record<string, ChartCard[]> = {
+    Overhead: [],
+    "Time-based Simulation": [],
+    "Testbench Helpers": [],
+  };
+
+  for (const card of cards) {
+    if (/^simulator_tick_|^simulation_step_/.test(card.benchName)) {
+      groups["Overhead"].push(card);
+    } else if (/^simulation_time_|^runUntil/.test(card.benchName)) {
+      groups["Time-based Simulation"].push(card);
+    } else {
+      groups["Testbench Helpers"].push(card);
+    }
+  }
+
+  return Object.entries(groups)
+    .filter(([, c]) => c.length > 0)
+    .map(([label, c]) => ({ label, cards: c }));
+}
+
+function singleSection(cards: ChartCard[]): TabSection[] {
+  return cards.length > 0 ? [{ label: "", cards }] : [];
+}
+
+// Priority order: API > Optimize > Stdlib > Counter
+const tabs: TabDef[] = [
   {
-    key: "build",
-    label: "Build",
-    match: (n: string) => n.includes("simulation_build"),
+    key: "counter",
+    label: "Counter",
+    match: (n) => n.includes("top_n1000"),
+    sections: singleSection,
   },
   {
-    key: "tick",
-    label: "Tick",
-    match: (n: string) => /^simulation_tick_/.test(n),
+    key: "stdlib",
+    label: "Std Library",
+    match: (n) =>
+      /linear_sec|countones|std_counter|gray_counter/.test(n),
+    sections: stdlibSections,
   },
   {
-    key: "testbench",
-    label: "Testbench",
-    match: (n: string) => /^testbench_(array_)?tick_/.test(n),
+    key: "api",
+    label: "API",
+    match: (n) =>
+      /^simulator_tick_|^simulation_step_|^simulation_time_|^waitForCycles|^manual_step|^runUntil/.test(n),
+    sections: apiSections,
   },
   {
-    key: "overhead",
-    label: "Overhead",
-    match: (n: string) => /^simulator_tick_|^simulation_step_/.test(n),
+    key: "optimize",
+    label: "Optimize",
+    match: (n) => n.includes("optimize"),
+    sections: singleSection,
   },
-  { key: "other", label: "Other", match: () => true },
-] as const;
+];
+
+// Matching uses reverse priority: later tabs get first chance
+function classifySeries(benchName: string): string {
+  // Check in reverse priority order: API > Optimize > Stdlib > Counter
+  for (const tab of [tabs[2], tabs[3], tabs[1], tabs[0]]) {
+    if (tab.match(benchName)) return tab.key;
+  }
+  return "counter"; // fallback
+}
 
 // --- Color palette ---
 
-const RUST_COLORS = [
-  "#3b82f6",
-  "#6366f1",
-  "#8b5cf6",
-  "#0ea5e9",
-  "#06b6d4",
-  "#2563eb",
-];
-const TS_COLORS = [
-  "#22c55e",
-  "#10b981",
-  "#14b8a6",
-  "#84cc16",
-  "#a3e635",
-  "#34d399",
-];
-const VERILATOR_COLORS = [
-  "#f97316",
-  "#f59e0b",
-  "#fb923c",
-  "#d97706",
-  "#fbbf24",
-  "#ea580c",
-];
-const DASH_PATTERNS = [[], [6, 3], [2, 2], [8, 4, 2, 4], [4, 4]];
+const RUNTIME_COLORS: Record<string, string> = {
+  rust: "#3b82f6",
+  ts: "#22c55e",
+  verilator: "#f97316",
+  unknown: "#9ca3af",
+};
+
+const RUNTIME_LABELS: Record<string, string> = {
+  rust: "Rust",
+  ts: "TS",
+  verilator: "Verilator",
+  unknown: "Unknown",
+};
 
 // --- State ---
 
 const loading = ref(true);
 const error = ref("");
 const rawData = ref<BenchData | null>(null);
-const selected = ref(new Set<string>());
-const selectorOpen = ref(true);
+const activeTab = ref("counter");
 
 // --- Helpers ---
 
@@ -151,11 +220,48 @@ function shortDate(epoch: number): string {
   return `${d.getMonth() + 1}/${d.getDate()}`;
 }
 
-/** Human-friendly display label */
-function displayLabel(s: Series): string {
-  const prefixMap: Record<string, string> = { rust: "Rust", ts: "TS", verilator: "Verilator" };
-  const prefix = prefixMap[s.runtime] ?? "";
-  return prefix ? `${prefix} / ${s.benchName}` : s.benchName;
+/** Format chart title from benchName */
+function formatChartTitle(benchName: string): string {
+  let s = benchName;
+
+  // Strip module identifiers for stdlib
+  s = s.replace(/^linear_sec_p6_/, "");
+  s = s.replace(/^countones_w64_/, "");
+  s = s.replace(/^std_counter_w32_/, "");
+  s = s.replace(/^std_gray_counter_w32_/, "");
+  // Strip counter workload identifiers
+  s = s.replace(/_top_n1000/, "");
+  // Strip optimize prefix patterns
+  s = s.replace(/^optimize_/, "");
+
+  // Replace operation names (longer prefixes first to avoid partial matches)
+  s = s.replace(/^simulation_time_build/, "Time build");
+  s = s.replace(/^simulation_time_tick/, "Time tick");
+  s = s.replace(/^simulation_build/, "Build");
+  s = s.replace(/^simulation_tick/, "Tick");
+  s = s.replace(/^simulation_step/, "Step");
+  s = s.replace(/^simulator_tick/, "Simulator tick");
+  s = s.replace(/^testbench_array_tick/, "Testbench (array) tick");
+  s = s.replace(/^testbench_tick/, "Testbench tick");
+  s = s.replace(/^manual_step/, "Manual step");
+  s = s.replace(/^waitForCycles/, "waitForCycles");
+  s = s.replace(/^runUntil/, "runUntil");
+
+  // Format iteration counts: _x1000000 → ×1M, _x1000 → ×1K, _x1 → ×1
+  s = s.replace(/_x(\d+)$/, (_, n) => {
+    const num = parseInt(n, 10);
+    if (num >= 1_000_000) return ` ×${num / 1_000_000}M`;
+    if (num >= 1_000) return ` ×${num / 1_000}K`;
+    return ` ×${num}`;
+  });
+
+  // Clean up remaining underscores
+  s = s.replace(/_/g, " ");
+
+  // Capitalize first letter
+  s = s.charAt(0).toUpperCase() + s.slice(1);
+
+  return s;
 }
 
 // --- Computed: all series ---
@@ -181,185 +287,140 @@ const allSeries = computed<Series[]>(() => {
     }
 
     for (const [name, points] of map) {
-      const stripped = stripPrefix(name);
-      const rt = runtime(name);
-      let cat = "other";
-      for (const c of categories) {
-        if (c.key !== "other" && c.match(stripped)) {
-          cat = c.key;
-          break;
-        }
-      }
-
       result.push({
         key: name,
-        benchName: stripped,
-        runtime: rt,
-        category: cat,
+        benchName: stripPrefix(name),
+        runtime: runtime(name),
         points: points.sort((a, b) => a.date - b.date),
       });
     }
   }
 
-  // Sort: by category order, then by name, then rust before ts
-  const catOrder = Object.fromEntries(categories.map((c, i) => [c.key, i]));
-  result.sort((a, b) => {
-    const co = (catOrder[a.category] ?? 99) - (catOrder[b.category] ?? 99);
-    if (co !== 0) return co;
-    const nc = a.benchName.localeCompare(b.benchName);
-    if (nc !== 0) return nc;
-    return a.runtime.localeCompare(b.runtime);
-  });
+  return result;
+});
+
+// --- Computed: tabs with chart cards ---
+
+const tabData = computed(() => {
+  const seriesList = allSeries.value;
+  if (seriesList.length === 0) return new Map<string, TabSection[]>();
+
+  // Group all series by tab
+  const tabSeries = new Map<string, Series[]>();
+  for (const tab of tabs) {
+    tabSeries.set(tab.key, []);
+  }
+
+  for (const s of seriesList) {
+    const tabKey = classifySeries(s.benchName);
+    tabSeries.get(tabKey)?.push(s);
+  }
+
+  // Within each tab, group series by benchName into chart cards
+  const result = new Map<string, TabSection[]>();
+
+  for (const tab of tabs) {
+    const tabSeriesList = tabSeries.get(tab.key) ?? [];
+
+    // Group by benchName
+    const byBenchName = new Map<string, Series[]>();
+    for (const s of tabSeriesList) {
+      if (!byBenchName.has(s.benchName)) byBenchName.set(s.benchName, []);
+      byBenchName.get(s.benchName)!.push(s);
+    }
+
+    // Create chart cards sorted alphabetically
+    const cards: ChartCard[] = [...byBenchName.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([benchName, series]) => ({
+        benchName,
+        title: formatChartTitle(benchName),
+        series: series.sort((a, b) => a.runtime.localeCompare(b.runtime)),
+      }));
+
+    result.set(tab.key, tab.sections(cards));
+  }
 
   return result;
 });
 
-/** Series grouped by category for the selector UI */
-const seriesByCategory = computed(() => {
-  const groups: { key: string; label: string; items: Series[] }[] = [];
-  for (const cat of categories) {
-    const items = allSeries.value.filter((s) => s.category === cat.key);
-    if (items.length > 0) {
-      groups.push({
-        key: cat.key,
-        label: cat.label,
-        items,
-      });
-    }
-  }
-  return groups;
-});
-
-// --- Selection helpers ---
-
-function toggle(key: string) {
-  const s = new Set(selected.value);
-  if (s.has(key)) s.delete(key);
-  else s.add(key);
-  selected.value = s;
-}
-
-function toggleCategory(catKey: string) {
-  const group = seriesByCategory.value.find((g) => g.key === catKey);
-  if (!group) return;
-  const keys = group.items.map((s) => s.key);
-  const allSelected = keys.every((k) => selected.value.has(k));
-  const s = new Set(selected.value);
-  if (allSelected) {
-    keys.forEach((k) => s.delete(k));
-  } else {
-    keys.forEach((k) => s.add(k));
-  }
-  selected.value = s;
-}
-
-function isCategoryAllSelected(catKey: string): boolean {
-  const group = seriesByCategory.value.find((g) => g.key === catKey);
-  if (!group || group.items.length === 0) return false;
-  return group.items.every((s) => selected.value.has(s.key));
-}
-
-function isCategoryPartial(catKey: string): boolean {
-  const group = seriesByCategory.value.find((g) => g.key === catKey);
-  if (!group || group.items.length === 0) return false;
-  const count = group.items.filter((s) => selected.value.has(s.key)).length;
-  return count > 0 && count < group.items.length;
-}
-
-function selectOnly(catKey: string) {
-  const group = seriesByCategory.value.find((g) => g.key === catKey);
-  if (!group) return;
-  selected.value = new Set(group.items.map((s) => s.key));
-}
-
-function selectAll() {
-  selected.value = new Set(allSeries.value.map((s) => s.key));
-}
-
-function selectNone() {
-  selected.value = new Set();
-}
-
-// --- Computed: chart data from selected series ---
-
-const selectedSeries = computed(() =>
-  allSeries.value.filter((s) => selected.value.has(s.key)),
+/** Which tabs actually have data */
+const availableTabs = computed(() =>
+  tabs.filter((t) => {
+    const sections = tabData.value.get(t.key);
+    return sections && sections.some((s) => s.cards.length > 0);
+  }),
 );
 
-const chartData = computed(() => {
-  const series = selectedSeries.value;
-  if (series.length === 0) return null;
+/** Active tab's sections */
+const activeSections = computed(() =>
+  tabData.value.get(activeTab.value) ?? [],
+);
 
-  // Collect all unique dates
+// --- Chart data builder per card ---
+
+function buildChartData(card: ChartCard) {
   const dateSet = new Set<number>();
-  for (const s of series) {
+  for (const s of card.series) {
     for (const p of s.points) dateSet.add(p.date);
   }
   const dates = [...dateSet].sort((a, b) => a - b);
   const labels = dates.map((d) => shortDate(d));
 
-  // Assign colors: index per runtime
-  const counters: Record<string, number> = { rust: 0, ts: 0, verilator: 0, unknown: 0 };
-  const palettes: Record<string, string[]> = {
-    rust: RUST_COLORS,
-    ts: TS_COLORS,
-    verilator: VERILATOR_COLORS,
-    unknown: TS_COLORS,
-  };
-
-  const datasets = series.map((s) => {
-    const idx = counters[s.runtime]++;
-    const palette = palettes[s.runtime];
-    const color = palette[idx % palette.length];
-
+  const datasets = card.series.map((s) => {
+    const color = RUNTIME_COLORS[s.runtime];
     const dateToValue = new Map(s.points.map((p) => [p.date, p.value]));
     return {
-      label: displayLabel(s),
+      label: RUNTIME_LABELS[s.runtime] ?? s.runtime,
       data: dates.map((d) => dateToValue.get(d) ?? null),
       borderColor: color,
       backgroundColor: color + "1a",
-      borderDash: DASH_PATTERNS[idx % DASH_PATTERNS.length],
       tension: 0.3,
       pointRadius: 2,
     };
   });
 
   return { labels, datasets };
-});
+}
 
-const chartOptions = computed(() => ({
-  responsive: true,
-  maintainAspectRatio: false,
-  interaction: {
-    mode: "index" as const,
-    intersect: false,
-  },
-  plugins: {
-    legend: {
-      labels: { color: "#e5e7eb" },
+function makeChartOptions() {
+  return {
+    responsive: true,
+    maintainAspectRatio: false,
+    interaction: {
+      mode: "index" as const,
+      intersect: false,
     },
-    tooltip: {
-      callbacks: {
-        label: (ctx: any) =>
-          `${ctx.dataset.label}: ${formatUs(ctx.parsed.y)}`,
+    plugins: {
+      legend: {
+        labels: { color: "#e5e7eb", boxWidth: 12, padding: 8, font: { size: 11 } },
+      },
+      tooltip: {
+        callbacks: {
+          label: (ctx: any) =>
+            `${ctx.dataset.label}: ${formatUs(ctx.parsed.y)}`,
+        },
       },
     },
-  },
-  scales: {
-    x: {
-      ticks: { color: "#9ca3af" },
-      grid: { color: "rgba(255,255,255,0.06)" },
-    },
-    y: {
-      ticks: {
-        color: "#9ca3af",
-        callback: (v: number) => formatUs(v),
+    scales: {
+      x: {
+        ticks: { color: "#9ca3af", font: { size: 10 } },
+        grid: { color: "rgba(255,255,255,0.06)" },
       },
-      grid: { color: "rgba(255,255,255,0.06)" },
+      y: {
+        ticks: {
+          color: "#9ca3af",
+          font: { size: 10 },
+          callback: (v: number) => formatUs(v),
+        },
+        grid: { color: "rgba(255,255,255,0.06)" },
+      },
     },
-  },
-  spanGaps: true,
-}));
+    spanGaps: true,
+  };
+}
+
+const chartOptions = makeChartOptions();
 
 // --- Fetch data ---
 
@@ -377,18 +438,12 @@ onMounted(async () => {
   } finally {
     loading.value = false;
   }
-});
 
-// Default selection: first category
-watch(
-  seriesByCategory,
-  (groups) => {
-    if (groups.length > 0 && selected.value.size === 0) {
-      selected.value = new Set(groups[0].items.map((s) => s.key));
-    }
-  },
-  { immediate: true },
-);
+  // Default to first tab that has data
+  if (availableTabs.value.length > 0) {
+    activeTab.value = availableTabs.value[0].key;
+  }
+});
 </script>
 
 <template>
@@ -406,72 +461,47 @@ watch(
     </div>
 
     <template v-else>
-      <!-- Preset buttons -->
-      <div class="bench-presets">
+      <!-- Tab bar -->
+      <div class="bench-tabs">
         <button
-          v-for="group in seriesByCategory"
-          :key="group.key"
-          :class="[
-            'bench-preset',
-            { active: isCategoryAllSelected(group.key) },
-          ]"
-          @click="selectOnly(group.key)"
-          :title="`Show only ${group.label}`"
+          v-for="tab in availableTabs"
+          :key="tab.key"
+          :class="['bench-tab', { active: activeTab === tab.key }]"
+          @click="activeTab = tab.key"
         >
-          {{ group.label }}
+          {{ tab.label }}
         </button>
-        <button class="bench-preset" @click="selectAll()">All</button>
-        <button class="bench-preset" @click="selectNone()">None</button>
       </div>
 
-      <!-- Series selector -->
-      <details class="bench-selector" :open="selectorOpen || undefined">
-        <summary @click.prevent="selectorOpen = !selectorOpen">
-          Series ({{ selected.size }} / {{ allSeries.length }})
-        </summary>
-        <div class="bench-selector-body">
-          <div
-            v-for="group in seriesByCategory"
-            :key="group.key"
-            class="bench-cat-group"
-          >
-            <label class="bench-cat-header" @click.prevent="toggleCategory(group.key)">
-              <input
-                type="checkbox"
-                :checked="isCategoryAllSelected(group.key)"
-                :indeterminate="isCategoryPartial(group.key)"
-                @click.prevent
-              />
-              {{ group.label }}
-            </label>
-            <div class="bench-cat-items">
-              <label
-                v-for="s in group.items"
-                :key="s.key"
-                class="bench-series-label"
-              >
-                <input
-                  type="checkbox"
-                  :checked="selected.has(s.key)"
-                  @change="toggle(s.key)"
+      <!-- Tab content: sections with chart card grids -->
+      <div v-if="activeSections.length > 0" class="bench-sections">
+        <div
+          v-for="section in activeSections"
+          :key="section.label"
+          class="bench-section"
+        >
+          <h3 v-if="section.label" class="bench-section-title">
+            {{ section.label }}
+          </h3>
+          <div class="bench-grid">
+            <div
+              v-for="card in section.cards"
+              :key="card.benchName"
+              class="bench-card"
+            >
+              <div class="bench-card-title">{{ card.title }}</div>
+              <div class="bench-card-chart">
+                <Line
+                  :data="buildChartData(card)"
+                  :options="(chartOptions as any)"
                 />
-                <span
-                  class="bench-runtime-badge"
-                  :class="s.runtime"
-                >{{ { rust: "R", ts: "T", verilator: "V" }[s.runtime] ?? "?" }}</span>
-                {{ s.benchName }}
-              </label>
+              </div>
             </div>
           </div>
         </div>
-      </details>
-
-      <!-- Chart -->
-      <div v-if="chartData && chartData.datasets.length > 0" class="bench-chart-wrapper">
-        <Line :data="chartData" :options="chartOptions as any" />
       </div>
       <div v-else class="bench-status">
-        Select one or more series to display.
+        No benchmark data for this category.
       </div>
     </template>
   </div>
@@ -492,133 +522,78 @@ watch(
   color: var(--vp-c-danger-1);
 }
 
-/* --- Presets --- */
+/* --- Tab bar --- */
 
-.bench-presets {
+.bench-tabs {
   display: flex;
-  gap: 0.4rem;
-  flex-wrap: wrap;
-  margin-bottom: 0.75rem;
+  gap: 0;
+  border-bottom: 2px solid var(--vp-c-divider);
+  margin-bottom: 1.25rem;
 }
 
-.bench-preset {
-  padding: 0.3rem 0.75rem;
-  border: 1px solid var(--vp-c-divider);
-  border-radius: 6px;
+.bench-tab {
+  padding: 0.5rem 1.25rem;
+  border: none;
   background: transparent;
   color: var(--vp-c-text-2);
   cursor: pointer;
-  font-size: 0.85rem;
-  transition: all 0.15s;
+  font-size: 0.9rem;
+  font-weight: 500;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  transition: color 0.15s, border-color 0.15s;
 }
 
-.bench-preset:hover {
-  border-color: var(--vp-c-brand-1);
+.bench-tab:hover {
   color: var(--vp-c-brand-1);
 }
 
-.bench-preset.active {
-  background: var(--vp-c-brand-1);
-  border-color: var(--vp-c-brand-1);
-  color: var(--vp-c-white);
+.bench-tab.active {
+  color: var(--vp-c-brand-1);
+  border-bottom-color: var(--vp-c-brand-1);
 }
 
-/* --- Series selector --- */
+/* --- Sections --- */
 
-.bench-selector {
-  margin-bottom: 1rem;
-  border: 1px solid var(--vp-c-divider);
-  border-radius: 8px;
-  overflow: hidden;
-}
-
-.bench-selector summary {
-  padding: 0.5rem 0.75rem;
-  cursor: pointer;
-  font-weight: 600;
-  font-size: 0.9rem;
-  color: var(--vp-c-text-1);
-  user-select: none;
-}
-
-.bench-selector-body {
-  padding: 0.5rem 0.75rem 0.75rem;
+.bench-sections {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.bench-section-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--vp-c-text-1);
+  margin: 0 0 0.75rem 0;
+  padding-bottom: 0.35rem;
+  border-bottom: 1px solid var(--vp-c-divider);
+}
+
+/* --- Card grid --- */
+
+.bench-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
   gap: 1rem;
 }
 
-.bench-cat-group {
-  min-width: 200px;
-  flex: 1;
-}
-
-.bench-cat-header {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  font-weight: 600;
-  font-size: 0.85rem;
-  color: var(--vp-c-text-1);
-  cursor: pointer;
-  margin-bottom: 0.25rem;
-}
-
-.bench-cat-items {
-  display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
-  padding-left: 0.25rem;
-}
-
-.bench-series-label {
-  display: flex;
-  align-items: center;
-  gap: 0.35rem;
-  font-size: 0.8rem;
-  color: var(--vp-c-text-2);
-  cursor: pointer;
-  line-height: 1.6;
-}
-
-.bench-series-label:hover {
-  color: var(--vp-c-text-1);
-}
-
-.bench-runtime-badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 1.1rem;
-  height: 1.1rem;
-  border-radius: 3px;
-  font-size: 0.65rem;
-  font-weight: 700;
-  flex-shrink: 0;
-}
-
-.bench-runtime-badge.rust {
-  background: rgba(59, 130, 246, 0.2);
-  color: #60a5fa;
-}
-
-.bench-runtime-badge.ts {
-  background: rgba(34, 197, 94, 0.2);
-  color: #4ade80;
-}
-
-.bench-runtime-badge.verilator {
-  background: rgba(249, 115, 22, 0.2);
-  color: #fb923c;
-}
-
-/* --- Chart --- */
-
-.bench-chart-wrapper {
-  position: relative;
-  height: 400px;
-  padding: 1rem;
+.bench-card {
   border: 1px solid var(--vp-c-divider);
   border-radius: 8px;
+  padding: 0.75rem;
+  background: var(--vp-c-bg-soft);
+}
+
+.bench-card-title {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--vp-c-text-1);
+  margin-bottom: 0.5rem;
+}
+
+.bench-card-chart {
+  position: relative;
+  height: 220px;
 }
 </style>
