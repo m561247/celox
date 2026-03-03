@@ -33,6 +33,19 @@ Detects and removes writes to the Working region that are never referenced.
 ### 2.5 Instruction Scheduling
 Reorders instructions while preserving inter-instruction dependencies (RAW/WAR/WAW), taking into account processor execution ports and memory latency.
 
+### 2.6 Tail-Call Splitting
+Cranelift uses a 24-bit instruction index internally, limiting a single function to approximately 16M CLIF instructions. Large combinational designs (e.g., wide-bus arithmetic, many coalesced execution units) can exceed this limit.
+
+When the estimated CLIF instruction count for `eval_comb` exceeds the threshold (currently 8M, a 50% safety margin), the optimizer splits it into a chain of smaller functions connected by Cranelift's `return_call` (tail-call) instruction, which avoids stack growth.
+
+Three strategies are applied in order of increasing cost:
+
+1.  **EU-boundary splitting**: Splits between execution units. Since `RegisterId`s are EU-scoped, no live registers need to be forwarded across the split boundary (zero overhead).
+2.  **Intra-EU single-block splitting**: For a single-block EU that exceeds the threshold, splits at `Store` instruction boundaries. A dynamic programming pass minimizes the number of live registers that must be forwarded as tail-call arguments. A cost model (`cost_model.rs`) estimates per-instruction CLIF cost, calibrated against the actual translator (including quadratic costs for wide shifts, multiplication, and division).
+3.  **Memory-spilled multi-block splitting**: For multi-block EUs (containing branches and loops), splits the CFG into chunks with a single-entry-point guarantee. Inter-chunk live registers are passed through a scratch memory region appended to the unified memory buffer, rather than as function arguments. Each chunk is compiled with signature `(mem_ptr) -> i64`, and cross-chunk edges emit spill stores followed by a tail-call.
+
+This pass runs even when `optimize=false` to prevent compilation failures.
+
 ## 3. Execution Layer (Behavioral) Optimizations
 
 These are dynamic optimizations applied in the simulator's execution loop.

@@ -30,6 +30,7 @@ pub struct Program {
     pub eval_only_ffs: HashMap<AbsoluteAddr, Vec<ExecutionUnit<RegionedAbsoluteAddr>>>,
     pub apply_ffs: HashMap<AbsoluteAddr, Vec<ExecutionUnit<RegionedAbsoluteAddr>>>,
     pub eval_comb: Vec<ExecutionUnit<RegionedAbsoluteAddr>>,
+    pub eval_comb_plan: Option<EvalCombPlan>,
     // ... other metadata
 }
 ```
@@ -37,6 +38,20 @@ pub struct Program {
 -   **`eval_apply_ffs`**: Standard synchronous flip-flop evaluation. Used when operating in a single domain.
 -   **`eval_only_ffs`**: Phase that only computes the next state and writes it to the Working region.
 -   **`apply_ffs`**: Phase that commits values from the Working region to the Stable region.
+-   **`eval_comb_plan`**: Compilation plan for `eval_comb` when the estimated CLIF instruction count exceeds Cranelift's internal limit (~16M instructions). See [Tail-Call Splitting](./optimizations.md#26-tail-call-splitting) for details.
+
+### `EvalCombPlan`
+
+Describes how `eval_comb` should be compiled when the default single-function approach would exceed Cranelift's instruction index limit.
+
+```rust
+pub enum EvalCombPlan {
+    /// Split into tail-call-chained functions with live regs passed as arguments.
+    TailCallChunks(Vec<TailCallChunk>),
+    /// Split with inter-chunk register values spilled through scratch memory.
+    MemorySpilled(MemorySpilledPlan),
+}
+```
 
 ### `ExecutionUnit`
 
