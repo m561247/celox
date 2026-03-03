@@ -1890,6 +1890,55 @@ module Top (
 });
 
 // ---------------------------------------------------------------------------
+// Interface array port (modport [N])
+// ---------------------------------------------------------------------------
+
+const INTERFACE_ARRAY_SOURCE = `
+interface Bus {
+    var data:  logic<8>;
+    var valid: logic;
+    modport consumer {
+        data:  input,
+        valid: input,
+    }
+}
+
+module Top (
+    bus: modport Bus::consumer [2],
+    out: output logic<8>,
+) {
+    assign out = bus.data[0] + bus.data[1];
+}
+`;
+
+describe("E2E: interface array port (modport [N])", () => {
+  test("interface array members accessible via .at()/.set()", () => {
+    interface TopPorts {
+      bus: {
+        data: { at(i: number): bigint; set(i: number, v: bigint): void; length: number };
+        valid: { at(i: number): bigint; set(i: number, v: bigint): void; length: number };
+      };
+      readonly out: bigint;
+    }
+
+    const sim = Simulator.fromSource<TopPorts>(INTERFACE_ARRAY_SOURCE, "Top");
+
+    sim.dut.bus.data.set(0, 0x10n);
+    sim.dut.bus.data.set(1, 0x20n);
+    expect(sim.dut.out).toBe(0x30n);
+
+    sim.dut.bus.data.set(0, 0xAAn);
+    sim.dut.bus.data.set(1, 0x11n);
+    expect(sim.dut.out).toBe(0xBBn);
+
+    expect(sim.dut.bus.data.length).toBe(2);
+    expect(sim.dut.bus.valid.length).toBe(2);
+
+    sim.dispose();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Bug fix: 1-bit unpacked array port (logic [N])
 // ---------------------------------------------------------------------------
 

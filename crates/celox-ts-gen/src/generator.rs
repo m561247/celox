@@ -400,7 +400,19 @@ fn write_dts_port_members(out: &mut String, ports: &[PortInfo], indent: &str) {
             let member_name = &member.name[member.name.find('.').unwrap() + 1..];
             let ts_type = ts_type_for_width(member.width);
             let readonly = if member.is_output { "readonly " } else { "" };
-            out.push_str(&format!("{}{}{}: {};\n", child_indent, readonly, member_name, ts_type));
+            if member.array_dims.is_some() {
+                let set_method = if member.is_output {
+                    String::new()
+                } else {
+                    format!(" set(i: number, value: {}): void;", ts_type)
+                };
+                out.push_str(&format!(
+                    "{}{}{}: {{ at(i: number): {};{} readonly length: number }};\n",
+                    child_indent, readonly, member_name, ts_type, set_method,
+                ));
+            } else {
+                out.push_str(&format!("{}{}{}: {};\n", child_indent, readonly, member_name, ts_type));
+            }
         }
         out.push_str(&format!("{}}};\n", indent));
     }
@@ -471,9 +483,20 @@ fn generate_js(module_name: &str, ports: &[PortInfo]) -> String {
             let member_name = &member.name[member.name.find('.').unwrap() + 1..];
             let type_str = type_info_str(member.type_info);
             let four_state_str = if member.is_4state { ", is4state: true" } else { "" };
+            let array_dims_str = match &member.array_dims {
+                Some(dims) => {
+                    let dims_str = dims
+                        .iter()
+                        .map(|d| d.to_string())
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    format!(", arrayDims: [{}]", dims_str)
+                }
+                None => String::new(),
+            };
             out.push_str(&format!(
-                "      {}: {{ direction: \"{}\", type: \"{}\", width: {}{} }},\n",
-                member_name, member.direction, type_str, member.width, four_state_str
+                "      {}: {{ direction: \"{}\", type: \"{}\", width: {}{}{} }},\n",
+                member_name, member.direction, type_str, member.width, four_state_str, array_dims_str
             ));
         }
         out.push_str("    } },\n");
@@ -797,5 +820,50 @@ module Top (
 
         // Flat ports must NOT contain "bus.data"
         assert!(!top.ports.contains_key("bus.data"), "ports map must not have flat 'bus.data' key");
+    }
+
+    /// Interface array port: a module with `bus: modport Bus::consumer [2]`.
+    /// Each interface member is expanded with array dimensions.
+    /// The DTS must emit array accessor types for the members,
+    /// and the JS must include `arrayDims` on each member.
+    #[test]
+    fn test_interface_array_port() {
+        let code = r#"
+interface Bus {
+    var data:  logic<8>;
+    var valid: logic;
+    modport consumer {
+        data:  input,
+        valid: input,
+    }
+}
+
+module Top (
+    bus: modport Bus::consumer [2],
+    out: output logic<8>,
+) {
+    assign out = bus.data[0];
+}
+"#;
+        let modules = generate_from_source(code);
+        let top = modules.iter().find(|m| m.module_name == "Top").unwrap();
+
+        assert_snapshot!("interface_array_port_dts", top.dts_content);
+        assert_snapshot!("interface_array_port_js", top.js_content);
+        assert_snapshot!("interface_array_port_md", top.md_content);
+
+        // The bus parent port must exist with an interface map
+        let bus_port = top.ports.get("bus").expect("ports map must have 'bus' key");
+        assert!(bus_port.interface.is_some(), "JsonPortInfo for 'bus' must have interface");
+        let iface = bus_port.interface.as_ref().unwrap();
+
+        // Each member must have arrayDims
+        assert!(iface.contains_key("data"), "interface must contain 'data'");
+        assert!(iface.contains_key("valid"), "interface must contain 'valid'");
+        assert_eq!(iface["data"].array_dims, Some(vec![2]));
+        assert_eq!(iface["valid"].array_dims, Some(vec![2]));
+
+        // DTS must contain array accessor pattern, not plain scalar type
+        assert!(top.dts_content.contains("at(i: number)"), "DTS must contain array accessor");
     }
 }

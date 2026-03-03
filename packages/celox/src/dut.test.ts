@@ -670,6 +670,90 @@ describe("createDut — array ports", () => {
 // Interface (nested) ports
 // ---------------------------------------------------------------------------
 
+describe("createDut — interface ports with array members", () => {
+  test("interface member with arrayDims uses array accessor", () => {
+    // Interface array pattern: bus: modport Bus::consumer [2]
+    // Veryl expands to bus.data with arrayDims:[2], bus.valid with arrayDims:[2]
+    const buffer = makeBuffer(64);
+    const layout: Record<string, SignalLayout> = {
+      "bus.data":  { offset: 0, width: 8, byteSize: 2, is4state: false, direction: "input" },
+      "bus.valid": { offset: 2, width: 1, byteSize: 1, is4state: false, direction: "input" },
+    };
+    const ports: Record<string, PortInfo> = {
+      bus: {
+        direction: "inout",
+        type: "logic",
+        width: 0,
+        interface: {
+          data:  { direction: "input", type: "logic", width: 8, arrayDims: [2] },
+          valid: { direction: "input", type: "logic", width: 1, arrayDims: [2] },
+        },
+      },
+    };
+    const handle = mockHandle();
+    const state: DirtyState = { dirty: false };
+
+    const dut = createDut<{
+      bus: {
+        data:  { at(i: number): bigint; set(i: number, v: bigint): void; length: number };
+        valid: { at(i: number): bigint; set(i: number, v: bigint): void; length: number };
+      };
+    }>(buffer, layout, ports, handle, state);
+
+    // data: 2 elements of 8 bits each
+    dut.bus.data.set(0, 0xAAn);
+    dut.bus.data.set(1, 0xBBn);
+    expect(dut.bus.data.at(0)).toBe(0xAAn);
+    expect(dut.bus.data.at(1)).toBe(0xBBn);
+    expect(dut.bus.data.length).toBe(2);
+
+    // valid: 2 elements of 1 bit each (bit-packed)
+    dut.bus.valid.set(0, 1n);
+    dut.bus.valid.set(1, 0n);
+    expect(dut.bus.valid.at(0)).toBe(1n);
+    expect(dut.bus.valid.at(1)).toBe(0n);
+    expect(dut.bus.valid.length).toBe(2);
+  });
+
+  test("interface with mixed scalar and array members", () => {
+    const buffer = makeBuffer(64);
+    const layout: Record<string, SignalLayout> = {
+      "bus.data":  { offset: 0, width: 8, byteSize: 2, is4state: false, direction: "input" },
+      "bus.valid": { offset: 4, width: 1, byteSize: 1, is4state: false, direction: "input" },
+    };
+    const ports: Record<string, PortInfo> = {
+      bus: {
+        direction: "inout",
+        type: "logic",
+        width: 0,
+        interface: {
+          data:  { direction: "input", type: "logic", width: 8, arrayDims: [2] },
+          valid: { direction: "input", type: "logic", width: 1 },
+        },
+      },
+    };
+    const handle = mockHandle();
+    const state: DirtyState = { dirty: false };
+
+    const dut = createDut<{
+      bus: {
+        data:  { at(i: number): bigint; set(i: number, v: bigint): void; length: number };
+        valid: bigint;
+      };
+    }>(buffer, layout, ports, handle, state);
+
+    // Array member
+    dut.bus.data.set(0, 0x11n);
+    dut.bus.data.set(1, 0x22n);
+    expect(dut.bus.data.at(0)).toBe(0x11n);
+    expect(dut.bus.data.at(1)).toBe(0x22n);
+
+    // Scalar member
+    dut.bus.valid = 1n;
+    expect(dut.bus.valid).toBe(1n);
+  });
+});
+
 describe("createDut — interface ports", () => {
   test("nested interface members", () => {
     const buffer = makeBuffer(64);

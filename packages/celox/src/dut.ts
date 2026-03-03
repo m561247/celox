@@ -446,6 +446,14 @@ function createNestedDut(
         configurable: false,
         writable: false,
       });
+    } else if (memberPort.arrayDims && memberPort.arrayDims.length > 0) {
+      const arrayObj = createArrayDut(view, sig, memberPort, handle, state);
+      Object.defineProperty(obj, memberName, {
+        value: arrayObj,
+        enumerable: true,
+        configurable: false,
+        writable: false,
+      });
     } else {
       defineSignalProperty(obj, memberName, view, sig, memberPort, handle, state);
     }
