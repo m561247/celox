@@ -1751,7 +1751,57 @@ fn eval_factor(
     context_width: Option<usize>,
 ) -> Result<((NodeId, HashSet<VarAtomBase<VarId>>), BoundaryMap<VarId>), ParserError> {
     match factor {
-        Factor::Variable(var_id, index, select, _) => {
+        Factor::Variable(var_id, index, select, comptime) => {
+            // Compile-time constant (e.g. genvar inside generate block): emit a
+            // constant node directly instead of loading from memory.
+            if comptime.is_const
+                && index.0.is_empty()
+                && select.0.is_empty()
+                && select.1.is_none()
+            {
+                if let Ok(val) = comptime.get_value() {
+                    let mask_xz = val.mask_xz().into_owned();
+                    let payload = val.payload().into_owned();
+                    let celox_value = &payload ^ &mask_xz;
+                    let width = val.width();
+                    let signed = val.signed();
+                    let mut expr = arena.alloc(SLTNode::Constant(
+                        celox_value, mask_xz, width, signed,
+                    ));
+                    if let Some(target_width) = context_width {
+                        let expr_width = width;
+                        if expr_width < target_width {
+                            let pad_width = target_width - expr_width;
+                            let pad = if signed {
+                                let msb_slice = arena.alloc(SLTNode::Slice {
+                                    expr,
+                                    access: BitAccess::new(expr_width - 1, expr_width - 1),
+                                });
+                                (msb_slice, pad_width)
+                            } else {
+                                let zero = arena.alloc(SLTNode::Constant(
+                                    BigUint::from(0u8),
+                                    BigUint::from(0u32),
+                                    pad_width,
+                                    false,
+                                ));
+                                (zero, pad_width)
+                            };
+                            expr = arena.alloc(SLTNode::Concat(vec![pad, (expr, expr_width)]));
+                        } else if expr_width > target_width {
+                            expr = arena.alloc(SLTNode::Slice {
+                                expr,
+                                access: BitAccess::new(0, target_width - 1),
+                            });
+                        }
+                    }
+                    return Ok((
+                        (expr, HashSet::default()),
+                        BoundaryMap::default(),
+                    ));
+                }
+            }
+
             let is_static_access = crate::parser::bitaccess::is_static_access(index, select);
             if is_static_access {
                 let access = eval_var_select(module, *var_id, index, select)?;

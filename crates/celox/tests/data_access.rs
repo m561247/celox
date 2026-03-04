@@ -1,4 +1,4 @@
-use celox::{Simulator, SimulatorBuilder};
+use celox::{BigUint, Simulator, SimulatorBuilder};
 use insta::assert_snapshot;
 
 fn setup_and_trace(code: &str, top: &str) -> celox::CompilationTrace {
@@ -250,4 +250,77 @@ fn test_dynamic_offset_sir() {
     let trace = setup_and_trace(code, "Top");
     let output = trace.format_program().unwrap();
     assert_snapshot!("dynamic_offset_sir", output);
+}
+
+#[test]
+fn test_genvar_const_in_generate() {
+    // Genvar used as a simple expression inside a generate block
+    // should produce per-instance constant values.
+    let code = r#"
+    module Top (
+        o: output logic<8> [4]
+    ) {
+        for j in 0..4 :g_assign {
+            assign o[j] = j as u8 + 10;
+        }
+    }
+"#;
+    let mut sim = Simulator::builder(code, "Top").build().unwrap();
+    let o = sim.signal("o");
+
+    // o is a flat 32-bit value: o[0] in bits [7:0], o[1] in [15:8], etc.
+    let val = sim.get(o);
+    assert_eq!(val.clone() & BigUint::from(0xFFu32), 10u32.into()); // o[0] = 10
+    assert_eq!((val.clone() >> 8u32) & BigUint::from(0xFFu32), 11u32.into()); // o[1] = 11
+    assert_eq!((val.clone() >> 16u32) & BigUint::from(0xFFu32), 12u32.into()); // o[2] = 12
+    assert_eq!((val.clone() >> 24u32) & BigUint::from(0xFFu32), 13u32.into()); // o[3] = 13
+}
+
+#[test]
+fn test_genvar_dynamic_index_issue21() {
+    // Issue #21: dynamic indexing of unpacked array using genvar-based
+    // expression should produce different values per generate instance.
+    // Each generate instance uses genvar `j` to compute a dynamic index
+    // into local_data. Without the fix, all instances would read local_data[0].
+    let code = r#"
+    module Top (
+        sel: input logic<2>,
+        o: output logic<16> [4]
+    ) {
+        var local_data: logic<16> [4];
+        always_comb {
+            local_data[0] = 16'hAAAA;
+            local_data[1] = 16'hBBBB;
+            local_data[2] = 16'hCCCC;
+            local_data[3] = 16'hDDDD;
+        }
+        for j in 0..4 :g_idx {
+            // Dynamic index: genvar j plus runtime sel, truncated to 2 bits
+            var idx: logic<2>;
+            assign idx = j as u32 + sel;
+            assign o[j] = local_data[idx];
+        }
+    }
+"#;
+    let mut sim = Simulator::builder(code, "Top").build().unwrap();
+    let sel = sim.signal("sel");
+    let o = sim.signal("o");
+
+    let mask16 = BigUint::from(0xFFFFu32);
+
+    // sel=0 → src[j]=j → o[j]=local_data[j]
+    sim.modify(|io| io.set(sel, 0u8)).unwrap();
+    let val = sim.get(o);
+    assert_eq!(val.clone() & mask16.clone(), 0xAAAAu32.into()); // o[0]
+    assert_eq!((val.clone() >> 16u32) & mask16.clone(), 0xBBBBu32.into()); // o[1]
+    assert_eq!((val.clone() >> 32u32) & mask16.clone(), 0xCCCCu32.into()); // o[2]
+    assert_eq!((val.clone() >> 48u32) & mask16.clone(), 0xDDDDu32.into()); // o[3]
+
+    // sel=1 → src[j]=(j+1)%4 → rotate left by 1
+    sim.modify(|io| io.set(sel, 1u8)).unwrap();
+    let val = sim.get(o);
+    assert_eq!(val.clone() & mask16.clone(), 0xBBBBu32.into()); // o[0] = local_data[1]
+    assert_eq!((val.clone() >> 16u32) & mask16.clone(), 0xCCCCu32.into()); // o[1] = local_data[2]
+    assert_eq!((val.clone() >> 32u32) & mask16.clone(), 0xDDDDu32.into()); // o[2] = local_data[3]
+    assert_eq!((val.clone() >> 48u32) & mask16.clone(), 0xAAAAu32.into()); // o[3] = local_data[0]
 }
