@@ -53,6 +53,46 @@ The analyzer enforces strict checks. When writing Veryl source in integration te
 - **Clock from logic**: A `var` of type `logic` cannot be used as a clock. Use an external `clock` input or `let gated: '_ clock = clk_input & en;` (first operand must be clock-typed).
 - **Self-referential assign**: `assign v = f(v);` is rejected as `UnassignVariable`. Use `always_comb` with `if`/`else` branches if possible, or redesign the circuit.
 
+## Dead Store Elimination (DSE)
+
+DSE removes stores that are never read, improving JIT performance. Controlled via `DeadStorePolicy` (`crates/celox/src/simulator/builder.rs`):
+
+| Policy | Behavior |
+|---|---|
+| `Off` (default) | No elimination — all stores preserved |
+| `PreserveTopPorts` | Eliminate except top-module port stores |
+| `PreserveAllPorts` | Eliminate except port stores of **all** instances |
+
+### Rust API
+
+```rust
+Simulator::builder(code, "Top")
+    .dead_store_policy(DeadStorePolicy::PreserveAllPorts)
+    .build()
+```
+
+### NAPI / TypeScript
+
+- **NAPI option**: `dead_store_policy: "off" | "preserve_top_ports" | "preserve_all_ports"` (`crates/celox-napi/src/lib.rs`)
+- **TS option**: `deadStorePolicy: "off" | "preserveTopPorts" | "preserveAllPorts"` in `SimulatorOptions` (`packages/celox/src/types.ts`)
+- **Mapping**: `buildNapiOpts()` in `napi-helpers.ts` converts camelCase → snake_case
+
+### Hierarchy Filtering
+
+DSE-enabled DUTs must not expose sub-instance signals that were eliminated. `filterHierarchyForDse()` (`napi-helpers.ts`) adjusts the hierarchy passed to `createDut()`:
+- `preserveTopPorts` → `children = {}` (sub-instances stripped)
+- `preserveAllPorts` → hierarchy intact (all instance ports survive)
+
+### Vite Plugin `?dse=` Query
+
+Import with `?dse=preserveAllPorts` or `?dse=preserveTopPorts` to bake `defaultOptions.deadStorePolicy` into the `ModuleDefinition`. `?dse` (no value) defaults to `preserveAllPorts`.
+
+```ts
+import { Adder } from './Adder.veryl?dse=preserveAllPorts';
+```
+
+`Simulator.create()` / `Simulation.create()` merge `module.defaultOptions` with caller-supplied options (caller wins).
+
 ## Rust Edition
 
 This project uses Rust **edition 2024**.
