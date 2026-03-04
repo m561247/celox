@@ -38,5 +38,8 @@ docs/api/
 .overlay-upper/
 .overlay-work/
 
+# Benchmark output
+ts-output.json
+
 # OS
 .DS_Store
