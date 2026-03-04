@@ -51,11 +51,19 @@ A **true loop** is a genuine combinational feedback path — the output feeds ba
 module Top (i: input logic, o: output logic<4>) {
     var v: logic<4>;
     always_comb {
-        v = {v[2:0], i};  // shift register: feeds back into itself
+        if i {
+            v = (v << 1) | 4'd1;
+        } else {
+            v = 4'd0;
+        }
     }
     assign o = v;
 }
 ```
+
+::: info
+The Veryl analyzer rejects bare self-referential assignments such as `assign v = {v[2:0], i}` with an `UnassignVariable` error. To write a true loop, use `always_comb` with `if`/`else` branches so that at least one branch assigns the variable without reading it. This satisfies the analyzer's data-flow check while still creating a combinational feedback path.
+:::
 
 By default, Celox allows only a small number of iterations (based on the structural loop depth). If the circuit needs more iterations to converge, declare a `trueLoop` with a sufficient `maxIter`:
 

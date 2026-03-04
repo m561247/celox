@@ -50,11 +50,19 @@ const sim = Simulator.fromSource(SOURCE, "Top", {
 module Top (i: input logic, o: output logic<4>) {
     var v: logic<4>;
     always_comb {
-        v = {v[2:0], i};  // シフトレジスタ: 自分自身にフィードバック
+        if i {
+            v = (v << 1) | 4'd1;
+        } else {
+            v = 4'd0;
+        }
     }
     assign o = v;
 }
 ```
+
+::: info
+Veryl の analyzer は `assign v = {v[2:0], i}` のような自己参照的な代入を `UnassignVariable` エラーで拒否します。true loop を記述するには `always_comb` 内で `if`/`else` を使い、少なくとも一方のブランチで自己参照なしに変数を代入してください。これにより analyzer のデータフロー検査を通過しつつ、組み合わせフィードバックパスを構成できます。
+:::
 
 デフォルトでは Celox はごく少ない反復回数しか許可しません（構造的なループ深さを基準にした上限値）。回路の収束にさらに多くの反復が必要な場合は `trueLoops` に十分な `maxIter` を指定します：
 
