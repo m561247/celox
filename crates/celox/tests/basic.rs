@@ -1,4 +1,4 @@
-use celox::{Simulator, SimulatorBuilder};
+use celox::{DeadStorePolicy, Simulator, SimulatorBuilder};
 use insta::assert_snapshot;
 
 fn setup_and_trace(code: &str, top: &str) -> celox::CompilationTrace {
@@ -229,4 +229,62 @@ module ModuleA (
     );
     let output = trace.format_program().unwrap();
     assert_snapshot!("rle_comb", output);
+}
+
+// ---------------------------------------------------------------------------
+// Dead Store Elimination (DSE) tests
+// ---------------------------------------------------------------------------
+
+const DSE_HIERARCHY_SOURCE: &str = r#"
+module Sub (
+    i_data: input logic<8>,
+    o_data: output logic<8>,
+) {
+    assign o_data = i_data;
+}
+
+module Top (
+    clk: input clock,
+    rst: input reset,
+    top_in: input logic<8>,
+    top_out: output logic<8>,
+) {
+    inst u_sub: Sub (
+        i_data: top_in,
+        o_data: top_out,
+    );
+}
+"#;
+
+#[test]
+fn test_dse_preserve_top_ports() {
+    // With PreserveTopPorts, top-level ports (top_in, top_out) survive DSE.
+    let mut sim = Simulator::builder(DSE_HIERARCHY_SOURCE, "Top")
+        .dead_store_policy(DeadStorePolicy::PreserveTopPorts)
+        .build()
+        .unwrap();
+    let top_in = sim.signal("top_in");
+    let top_out = sim.signal("top_out");
+
+    sim.modify(|io| io.set(top_in, 0xABu8)).unwrap();
+    assert_eq!(sim.get(top_out), 0xABu64.into());
+}
+
+#[test]
+fn test_dse_preserve_all_ports() {
+    // With PreserveAllPorts, both top-level AND sub-instance ports survive DSE.
+    let mut sim = Simulator::builder(DSE_HIERARCHY_SOURCE, "Top")
+        .dead_store_policy(DeadStorePolicy::PreserveAllPorts)
+        .build()
+        .unwrap();
+    let top_in = sim.signal("top_in");
+    let top_out = sim.signal("top_out");
+
+    sim.modify(|io| io.set(top_in, 0x42u8)).unwrap();
+    assert_eq!(sim.get(top_out), 0x42u64.into());
+
+    // Sub-instance ports should also be accessible and correct
+    let sub_signals = sim.instance_signals(&[("u_sub", 0)]);
+    let sub_o_data = sub_signals.iter().find(|s| s.name == "o_data").unwrap();
+    assert_eq!(sim.get(sub_o_data.signal), 0x42u64.into());
 }

@@ -2271,3 +2271,77 @@ describe("E2E: 1-bit unpacked array port (logic [N])", () => {
 		sim.dispose();
 	});
 });
+
+// ---------------------------------------------------------------------------
+// Dead Store Elimination (DSE) tests
+// ---------------------------------------------------------------------------
+
+describe("E2E: deadStorePolicy option", () => {
+	test("preserveTopPorts: top ports work, child instances stripped from DUT", () => {
+		const sim = Simulator.fromSource(HIERARCHY_SOURCE, "Top", {
+			deadStorePolicy: "preserveTopPorts",
+		});
+
+		sim.dut.top_in = 0xabn;
+		sim.tick();
+		expect(sim.dut.top_out).toBe(0xabn);
+
+		// With preserveTopPorts, children should be stripped from hierarchy
+		expect((sim.dut as any).u_sub).toBeUndefined();
+
+		sim.dispose();
+	});
+
+	test("preserveAllPorts: top ports AND child instance ports accessible", () => {
+		const sim = Simulator.fromSource(HIERARCHY_SOURCE, "Top", {
+			deadStorePolicy: "preserveAllPorts",
+		});
+
+		sim.dut.top_in = 0x42n;
+		sim.tick();
+		expect(sim.dut.top_out).toBe(0x42n);
+
+		// With preserveAllPorts, child instance ports should remain accessible
+		expect((sim.dut as any).u_sub).toBeDefined();
+		expect((sim.dut as any).u_sub.o_data).toBe(0x42n);
+
+		sim.dispose();
+	});
+
+	test("Simulation: preserveTopPorts strips children", () => {
+		const sim = Simulation.fromSource(HIERARCHY_SOURCE, "Top", {
+			deadStorePolicy: "preserveTopPorts",
+		});
+		sim.addClock("clk", { period: 10 });
+
+		sim.dut.rst = 0n;
+		sim.runUntil(20);
+		sim.dut.rst = 1n;
+
+		sim.dut.top_in = 0x55n;
+		sim.runUntil(40);
+		expect(sim.dut.top_out).toBe(0x55n);
+		expect((sim.dut as any).u_sub).toBeUndefined();
+
+		sim.dispose();
+	});
+
+	test("Simulation: preserveAllPorts keeps children", () => {
+		const sim = Simulation.fromSource(HIERARCHY_SOURCE, "Top", {
+			deadStorePolicy: "preserveAllPorts",
+		});
+		sim.addClock("clk", { period: 10 });
+
+		sim.dut.rst = 0n;
+		sim.runUntil(20);
+		sim.dut.rst = 1n;
+
+		sim.dut.top_in = 0xffn;
+		sim.runUntil(40);
+		expect(sim.dut.top_out).toBe(0xffn);
+		expect((sim.dut as any).u_sub).toBeDefined();
+		expect((sim.dut as any).u_sub.o_data).toBe(0xffn);
+
+		sim.dispose();
+	});
+});
