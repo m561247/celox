@@ -4,7 +4,7 @@ use crate::ir::{
     SIRValue, STABLE_REGION, UnaryOp, VarAtomBase, WORKING_REGION,
 };
 use crate::parser::{
-    ParserError,
+    LoweringPhase, ParserError,
     bitaccess::{eval_var_select, is_static_access},
     resolve_dims, resolve_shape_total,
 };
@@ -734,35 +734,41 @@ impl<'a> FfParser<'a> {
                     }
 
                     let Expression::Term(bound_factor) = &bound_expr else {
-                        return Err(ParserError::UnsupportedFFLowering {
-                            feature: "function argument indexed access",
-                            detail: format!(
+                        return Err(ParserError::unsupported(
+                            LoweringPhase::FfLowering,
+                            "function argument indexed access",
+                            format!(
                                 "non-variable argument expression with indexed access: var_id={:?}",
                                 var_id
                             ),
-                        });
+                            Some(&factor.token_range()),
+                        ));
                     };
 
                     let Factor::Variable(bound_var_id, bound_var_index, bound_var_select, _) =
                         bound_factor.as_ref()
                     else {
-                        return Err(ParserError::UnsupportedFFLowering {
-                            feature: "function argument indexed access",
-                            detail: format!(
+                        return Err(ParserError::unsupported(
+                            LoweringPhase::FfLowering,
+                            "function argument indexed access",
+                            format!(
                                 "non-variable argument expression with indexed access: var_id={:?}",
                                 var_id
                             ),
-                        });
+                            Some(&factor.token_range()),
+                        ));
                     };
 
                     if bound_var_select.1.is_some() {
-                        return Err(ParserError::UnsupportedFFLowering {
-                            feature: "function argument indexed access",
-                            detail: format!(
+                        return Err(ParserError::unsupported(
+                            LoweringPhase::FfLowering,
+                            "function argument indexed access",
+                            format!(
                                 "chained range access is unsupported: var_id={:?}",
                                 var_id
                             ),
-                        });
+                            Some(&factor.token_range()),
+                        ));
                     }
 
                     let mut merged_index = bound_var_index.clone();
@@ -800,10 +806,12 @@ impl<'a> FfParser<'a> {
                 );
             }
             Factor::SystemFunctionCall(call) => {
-                return Err(ParserError::UnsupportedFFLowering {
-                    feature: "system function call",
-                    detail: format!("{call}"),
-                });
+                return Err(ParserError::unsupported(
+                    LoweringPhase::FfLowering,
+                    "system function call",
+                    format!("{call}"),
+                    Some(&call.comptime.token),
+                ));
             }
             Factor::FunctionCall(call) => {
                 self.parse_function_call_expr(call, targets, domain, convert, sources, ir_builder)?;
@@ -934,10 +942,12 @@ impl<'a> FfParser<'a> {
             let Some((target_width, target_signed, target_is_2state)) =
                 self.get_cast_target_info(right)
             else {
-                return Err(ParserError::UnsupportedFFLowering {
-                    feature: "as cast target",
-                    detail: format!("{:?}", right),
-                });
+                return Err(ParserError::unsupported(
+                    LoweringPhase::FfLowering,
+                    "as cast target",
+                    format!("{:?}", right),
+                    Some(&right.token_range()),
+                ));
             };
 
             let casted = if target_is_2state {
@@ -952,10 +962,12 @@ impl<'a> FfParser<'a> {
 
         if matches!(op, Op::Pow) {
             let Some(exp) = self.get_constant_value(right) else {
-                return Err(ParserError::UnsupportedFFLowering {
-                    feature: "pow non-constant exponent",
-                    detail: format!("{:?}", right),
-                });
+                return Err(ParserError::unsupported(
+                    LoweringPhase::FfLowering,
+                    "pow non-constant exponent",
+                    format!("{:?}", right),
+                    Some(&right.token_range()),
+                ));
             };
 
             let width = self.get_expression_width(left);
@@ -1307,16 +1319,20 @@ impl<'a> FfParser<'a> {
             let src_width = ir_builder.register(&reg).width();
 
             let Some(member_type) = ty.get_member_type(*name) else {
-                return Err(ParserError::UnsupportedFFLowering {
-                    feature: "struct constructor member",
-                    detail: format!("unknown member: {:?} in {:?}", name, ty),
-                });
+                return Err(ParserError::unsupported(
+                    LoweringPhase::FfLowering,
+                    "struct constructor member",
+                    format!("unknown member: {:?} in {:?}", name, ty),
+                    Some(&expr.token_range()),
+                ));
             };
             let Some(member_width) = member_type.total_width() else {
-                return Err(ParserError::UnsupportedFFLowering {
-                    feature: "struct constructor member width",
-                    detail: format!("member: {:?}, type: {:?}", name, member_type),
-                });
+                return Err(ParserError::unsupported(
+                    LoweringPhase::FfLowering,
+                    "struct constructor member width",
+                    format!("member: {:?}, type: {:?}", name, member_type),
+                    Some(&expr.token_range()),
+                ));
             };
 
             if src_width > member_width {
@@ -1376,10 +1392,12 @@ impl<'a> FfParser<'a> {
 
                     let rep_count = if let Some(rep_expr) = repeat {
                         self.get_constant_value(rep_expr).ok_or_else(|| {
-                            ParserError::UnsupportedFFLowering {
-                                feature: "array literal non-constant repeat",
-                                detail: format!("{:?}", rep_expr),
-                            }
+                            ParserError::unsupported(
+                                LoweringPhase::FfLowering,
+                                "array literal non-constant repeat",
+                                format!("{:?}", rep_expr),
+                                Some(&rep_expr.token_range()),
+                            )
                         })?
                     } else {
                         1
@@ -1392,10 +1410,12 @@ impl<'a> FfParser<'a> {
                 }
                 ArrayLiteralItem::Defaul(expr) => {
                     if default_part.is_some() {
-                        return Err(ParserError::UnsupportedFFLowering {
-                            feature: "array literal multiple default",
-                            detail: format!("{:?}", items),
-                        });
+                        return Err(ParserError::unsupported(
+                            LoweringPhase::FfLowering,
+                            "array literal multiple default",
+                            format!("{:?}", items),
+                            Some(&expr.token_range()),
+                        ));
                     }
 
                     self.parse_expression(
@@ -1413,27 +1433,33 @@ impl<'a> FfParser<'a> {
 
         if let Some((default_reg, default_width)) = default_part {
             let Some(target_width) = expected_width else {
-                return Err(ParserError::UnsupportedFFLowering {
-                    feature: "array literal default without context width",
-                    detail: format!("{:?}", items),
-                });
+                return Err(ParserError::unsupported(
+                    LoweringPhase::FfLowering,
+                    "array literal default without context width",
+                    format!("{:?}", items),
+                    items.first().map(|it| it.token_range()).as_ref(),
+                ));
             };
 
             if explicit_width > target_width {
-                return Err(ParserError::UnsupportedFFLowering {
-                    feature: "array literal width overflow",
-                    detail: format!("explicit_width={explicit_width}, target_width={target_width}"),
-                });
+                return Err(ParserError::unsupported(
+                    LoweringPhase::FfLowering,
+                    "array literal width overflow",
+                    format!("explicit_width={explicit_width}, target_width={target_width}"),
+                    items.first().map(|it| it.token_range()).as_ref(),
+                ));
             }
 
             let remaining = target_width - explicit_width;
             if default_width == 0 || !remaining.is_multiple_of(default_width) {
-                return Err(ParserError::UnsupportedFFLowering {
-                    feature: "array literal default width mismatch",
-                    detail: format!(
+                return Err(ParserError::unsupported(
+                    LoweringPhase::FfLowering,
+                    "array literal default width mismatch",
+                    format!(
                         "remaining={remaining}, default_width={default_width}, target_width={target_width}"
                     ),
-                });
+                    items.first().map(|it| it.token_range()).as_ref(),
+                ));
             }
 
             for _ in 0..(remaining / default_width) {

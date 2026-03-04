@@ -10,8 +10,8 @@ use crate::logic_tree::{
     range_store::RangeStore,
 };
 use crate::parser::{
-    BuildConfig, ParserError, bitaccess::eval_var_select, bitslicer::BitSlicer, ff::FfParser,
-    registry::get_port_type, resolve_total_width,
+    BuildConfig, LoweringPhase, ParserError, bitaccess::eval_var_select, bitslicer::BitSlicer,
+    ff::FfParser, registry::get_port_type, resolve_total_width,
 };
 use crate::{HashMap, HashSet};
 use veryl_analyzer::ir::{Component, Declaration, InstDeclaration, Module, VarId};
@@ -80,10 +80,12 @@ impl<'a> ModuleParser<'a> {
         module_id: ModuleId,
     ) -> Result<(), ParserError> {
         if let Component::SystemVerilog(system_verilog) = &decl.component {
-            return Err(ParserError::UnsupportedSimulatorParser {
-                feature: "systemverilog module instantiation",
-                detail: format!("name: {:?}", system_verilog.name),
-            });
+            return Err(ParserError::unsupported(
+                LoweringPhase::SimulatorParser,
+                "systemverilog module instantiation",
+                format!("name: {:?}", system_verilog.name),
+                None,
+            ));
         }
 
         let child_module = match &decl.component {

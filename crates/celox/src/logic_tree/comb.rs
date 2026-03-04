@@ -3,7 +3,7 @@ use std::{collections::BTreeSet, fmt, hash::Hash};
 use crate::ParserError;
 use crate::context_width::get_context_width;
 use crate::logic_tree::range_store::RangeStore;
-use crate::parser::{resolve_total_width, resolve_width};
+use crate::parser::{LoweringPhase, resolve_total_width, resolve_width};
 use crate::{
     HashMap, HashSet,
     ir::{BinaryOp, BitAccess, UnaryOp, VarAtomBase},
@@ -590,10 +590,30 @@ fn eval_statement(
     match stmt {
         Statement::Assign(assign) => eval_assign(module, store, boundaries, assign, arena),
         Statement::If(if_stmt) => eval_if(module, store, boundaries, if_stmt, arena),
-        _ => Err(ParserError::UnsupportedSimulatorParser {
-            feature: "unsupported statement in always_comb",
-            detail: "illegal statement in always_comb".to_string(),
-        }),
+        Statement::IfReset(ir) => Err(ParserError::unsupported(
+            LoweringPhase::SimulatorParser,
+            "unsupported statement in always_comb",
+            "illegal statement in always_comb: if_reset".to_string(),
+            Some(&ir.token),
+        )),
+        Statement::SystemFunctionCall(fc) => Err(ParserError::unsupported(
+            LoweringPhase::SimulatorParser,
+            "unsupported statement in always_comb",
+            "illegal statement in always_comb: system function call".to_string(),
+            Some(&fc.comptime.token),
+        )),
+        Statement::FunctionCall(fc) => Err(ParserError::unsupported(
+            LoweringPhase::SimulatorParser,
+            "unsupported statement in always_comb",
+            "illegal statement in always_comb: function call".to_string(),
+            Some(&fc.comptime.token),
+        )),
+        _ => Err(ParserError::unsupported(
+            LoweringPhase::SimulatorParser,
+            "unsupported statement in always_comb",
+            "illegal statement in always_comb".to_string(),
+            None,
+        )),
     }
 }
 
@@ -1009,10 +1029,12 @@ fn eval_array_literal_expression(
                 let width = get_width(part_expr, arena);
                 let rep_count = if let Some(rep_expr) = repeat {
                     let Some(rep_count) = eval_constexpr(rep_expr).and_then(|x| x.to_u64()) else {
-                        return Err(ParserError::UnsupportedCombLowering {
-                            feature: "array literal non-constant repeat",
-                            detail: format!("{:?}", rep_expr),
-                        });
+                        return Err(ParserError::unsupported(
+                            LoweringPhase::CombLowering,
+                            "array literal non-constant repeat",
+                            format!("{:?}", rep_expr),
+                            Some(&rep_expr.token_range()),
+                        ));
                     };
                     rep_count
                 } else {
@@ -1026,10 +1048,13 @@ fn eval_array_literal_expression(
             }
             ArrayLiteralItem::Defaul(default_expr) => {
                 if default_part.is_some() {
-                    return Err(ParserError::UnsupportedCombLowering {
-                        feature: "array literal multiple default",
-                        detail: format!("{:?}", items),
-                    });
+                    let token = default_expr.token_range();
+                    return Err(ParserError::unsupported(
+                        LoweringPhase::CombLowering,
+                        "array literal multiple default",
+                        format!("{:?}", items),
+                        Some(&token),
+                    ));
                 }
 
                 let ((part_expr, part_sources), p_bounds) =
@@ -1044,27 +1069,35 @@ fn eval_array_literal_expression(
 
     if let Some((default_expr, default_width)) = default_part {
         let Some(target_width) = expected_width else {
-            return Err(ParserError::UnsupportedCombLowering {
-                feature: "array literal default without context width",
-                detail: format!("{:?}", items),
-            });
+            let token = items.first().map(|i| i.token_range());
+            return Err(ParserError::unsupported(
+                LoweringPhase::CombLowering,
+                "array literal default without context width",
+                format!("{:?}", items),
+                token.as_ref(),
+            ));
         };
 
         if explicit_width > target_width {
-            return Err(ParserError::UnsupportedCombLowering {
-                feature: "array literal width overflow",
-                detail: format!("explicit_width={explicit_width}, target_width={target_width}"),
-            });
+            let token = items.first().map(|i| i.token_range());
+            return Err(ParserError::unsupported(
+                LoweringPhase::CombLowering,
+                "array literal width overflow",
+                format!("explicit_width={explicit_width}, target_width={target_width}"),
+                token.as_ref(),
+            ));
         }
 
         let remaining = target_width - explicit_width;
         if default_width == 0 || !remaining.is_multiple_of(default_width) {
-            return Err(ParserError::UnsupportedCombLowering {
-                feature: "array literal default width mismatch",
-                detail: format!(
+            return Err(ParserError::unsupported(
+                LoweringPhase::CombLowering,
+                "array literal default width mismatch",
+                format!(
                     "remaining={remaining}, default_width={default_width}, target_width={target_width}"
                 ),
-            });
+                None,
+            ));
         }
 
         for _ in 0..(remaining / default_width) {
@@ -1174,10 +1207,12 @@ fn extract_function_return_expr(
         match stmt {
             Statement::Assign(assign) => {
                 if assign.dst.len() != 1 {
-                    return Err(ParserError::UnsupportedCombLowering {
-                        feature: "function body assignment shape",
-                        detail: format!("{stmt}"),
-                    });
+                    return Err(ParserError::unsupported(
+                        LoweringPhase::CombLowering,
+                        "function body assignment shape",
+                        format!("{stmt}"),
+                        Some(&assign.token),
+                    ));
                 }
 
                 let dst = &assign.dst[0];
@@ -1212,10 +1247,12 @@ fn extract_function_return_expr(
                     next_defs.insert(dst.id, merged);
                     resolve_return_expr(module, rest, ret_id, &next_defs)
                 } else {
-                    Err(ParserError::UnsupportedCombLowering {
-                        feature: "function body non-whole assignment (dynamic index)",
-                        detail: format!("{stmt}"),
-                    })
+                    Err(ParserError::unsupported(
+                        LoweringPhase::CombLowering,
+                        "function body non-whole assignment (dynamic index)",
+                        format!("{stmt}"),
+                        Some(&assign.token),
+                    ))
                 }
             }
             Statement::If(if_stmt) => {
@@ -1240,20 +1277,34 @@ fn extract_function_return_expr(
                 }
             }
             Statement::Null => resolve_return_expr(module, rest, ret_id, defs),
-            Statement::IfReset(_)
-            | Statement::SystemFunctionCall(_)
-            | Statement::FunctionCall(_) => Err(ParserError::UnsupportedCombLowering {
-                feature: "function body control flow",
-                detail: format!("{stmt}"),
-            }),
+            Statement::IfReset(ir) => Err(ParserError::unsupported(
+                LoweringPhase::CombLowering,
+                "function body control flow",
+                format!("{stmt}"),
+                Some(&ir.token),
+            )),
+            Statement::SystemFunctionCall(fc) => Err(ParserError::unsupported(
+                LoweringPhase::CombLowering,
+                "function body control flow",
+                format!("{stmt}"),
+                Some(&fc.comptime.token),
+            )),
+            Statement::FunctionCall(fc) => Err(ParserError::unsupported(
+                LoweringPhase::CombLowering,
+                "function body control flow",
+                format!("{stmt}"),
+                Some(&fc.comptime.token),
+            )),
         }
     }
 
     resolve_return_expr(module, &body.statements, ret_id, &HashMap::default())?.ok_or_else(|| {
-        ParserError::UnsupportedCombLowering {
-            feature: "function return expression",
-            detail: format!("function return var id: {:?}", ret_id),
-        }
+        ParserError::unsupported(
+            LoweringPhase::CombLowering,
+            "function return expression",
+            format!("function return var id: {:?}", ret_id),
+            None,
+        )
     })
 }
 
@@ -1264,17 +1315,21 @@ fn eval_function_call_expression(
     arena: &mut SLTNodeArena<VarId>,
 ) -> Result<((NodeId, HashSet<VarAtomBase<VarId>>), BoundaryMap<VarId>), ParserError> {
     if !call.outputs.is_empty() {
-        return Err(ParserError::UnsupportedCombLowering {
-            feature: "function call with output arguments",
-            detail: format!("{call}"),
-        });
+        return Err(ParserError::unsupported(
+            LoweringPhase::CombLowering,
+            "function call with output arguments",
+            format!("{call}"),
+            Some(&call.comptime.token),
+        ));
     }
 
     let Some(function) = module.functions.get(&call.id) else {
-        return Err(ParserError::UnsupportedCombLowering {
-            feature: "function call",
-            detail: format!("unknown function id: {:?}", call.id),
-        });
+        return Err(ParserError::unsupported(
+            LoweringPhase::CombLowering,
+            "function call",
+            format!("unknown function id: {:?}", call.id),
+            Some(&call.comptime.token),
+        ));
     };
 
     let Some(function_body) = (if let Some(index) = &call.index {
@@ -1282,17 +1337,21 @@ fn eval_function_call_expression(
     } else {
         function.get_function(&[])
     }) else {
-        return Err(ParserError::UnsupportedCombLowering {
-            feature: "function call specialization",
-            detail: format!("{call}"),
-        });
+        return Err(ParserError::unsupported(
+            LoweringPhase::CombLowering,
+            "function call specialization",
+            format!("{call}"),
+            Some(&call.comptime.token),
+        ));
     };
 
     let Some(ret_id) = function_body.ret else {
-        return Err(ParserError::UnsupportedCombLowering {
-            feature: "void function call in comb expression",
-            detail: format!("{call}"),
-        });
+        return Err(ParserError::unsupported(
+            LoweringPhase::CombLowering,
+            "void function call in comb expression",
+            format!("{call}"),
+            Some(&call.comptime.token),
+        ));
     };
 
     let ret_expr = extract_function_return_expr(module, &function_body, ret_id)?;
@@ -1303,10 +1362,12 @@ fn eval_function_call_expression(
 
     for (arg_path, arg_id) in &function_body.arg_map {
         let Some(arg_expr) = call.inputs.get(arg_path) else {
-            return Err(ParserError::UnsupportedCombLowering {
-                feature: "function call missing argument",
-                detail: format!("{call}"),
-            });
+            return Err(ParserError::unsupported(
+                LoweringPhase::CombLowering,
+                "function call missing argument",
+                format!("{call}"),
+                Some(&call.comptime.token),
+            ));
         };
 
         let ((arg_node, sources), bounds) =
@@ -1315,10 +1376,12 @@ fn eval_function_call_expression(
         arg_bounds = merge_boundaries(arg_bounds, bounds);
 
         let Some(arg_var) = module.variables.get(arg_id) else {
-            return Err(ParserError::UnsupportedCombLowering {
-                feature: "function argument variable",
-                detail: format!("unknown arg id: {:?}", arg_id),
-            });
+            return Err(ParserError::unsupported(
+                LoweringPhase::CombLowering,
+                "function argument variable",
+                format!("unknown arg id: {:?}", arg_id),
+                Some(&call.comptime.token),
+            ));
         };
         let arg_width = resolve_width(module, arg_var)?;
         local_store.insert(
@@ -1425,10 +1488,12 @@ pub fn eval_expression(
                     _ => (None, false),
                 };
                 let Some(target_width) = target_width else {
-                    return Err(ParserError::UnsupportedCombLowering {
-                        feature: "as cast target",
-                        detail: format!("{:?}", rhs),
-                    });
+                    return Err(ParserError::unsupported(
+                        LoweringPhase::CombLowering,
+                        "as cast target",
+                        format!("{:?}", rhs),
+                        Some(&rhs.token_range()),
+                    ));
                 };
 
                 let mut result_node = l_expr;
@@ -1472,10 +1537,12 @@ pub fn eval_expression(
                     eval_expression(module, store, lhs, arena, lhs_context_width)?;
                 let Some(exp) = eval_constexpr(rhs).and_then(|x| x.to_u64().map(|v| v as usize))
                 else {
-                    return Err(ParserError::UnsupportedCombLowering {
-                        feature: "pow non-constant exponent",
-                        detail: format!("{:?}", rhs),
-                    });
+                    return Err(ParserError::unsupported(
+                        LoweringPhase::CombLowering,
+                        "pow non-constant exponent",
+                        format!("{:?}", rhs),
+                        Some(&rhs.token_range()),
+                    ));
                 };
                 let lhs_width = get_width(l_expr, arena);
                 let result_node = if exp == 0 {
@@ -1622,10 +1689,12 @@ pub fn eval_expression(
 
                 let rep_count = if let Some(rep_expr) = repeat {
                     let v = eval_constexpr(rep_expr);
-                    v.ok_or_else(|| ParserError::UnsupportedCombLowering {
-                        feature: "concatenation non-constant repeat",
-                        detail: format!("{:?}", rep_expr),
-                    })?
+                    v.ok_or_else(|| ParserError::unsupported(
+                        LoweringPhase::CombLowering,
+                        "concatenation non-constant repeat",
+                        format!("{:?}", rep_expr),
+                        Some(&rep_expr.token_range()),
+                    ))?
                     .iter_u64_digits()
                     .next()
                     .unwrap()
@@ -1697,16 +1766,20 @@ pub fn eval_expression(
                 total_sources.extend(part_sources);
 
                 let Some(member_type) = ty.get_member_type(*name) else {
-                    return Err(ParserError::UnsupportedCombLowering {
-                        feature: "struct constructor member",
-                        detail: format!("unknown member: {:?} in {:?}", name, ty),
-                    });
+                    return Err(ParserError::unsupported(
+                        LoweringPhase::CombLowering,
+                        "struct constructor member",
+                        format!("unknown member: {:?} in {:?}", name, ty),
+                        Some(&field_expr.token_range()),
+                    ));
                 };
                 let Some(member_width) = member_type.total_width() else {
-                    return Err(ParserError::UnsupportedCombLowering {
-                        feature: "struct constructor member width",
-                        detail: format!("member: {:?}, type: {:?}", name, member_type),
-                    });
+                    return Err(ParserError::unsupported(
+                        LoweringPhase::CombLowering,
+                        "struct constructor member width",
+                        format!("member: {:?}, type: {:?}", name, member_type),
+                        Some(&field_expr.token_range()),
+                    ));
                 };
 
                 let part_width = get_width(part_expr, arena);
@@ -1989,15 +2062,19 @@ fn eval_factor(
                 BoundaryMap::default(),
             ))
         }
-        Factor::SystemFunctionCall(call) => Err(ParserError::UnsupportedCombLowering {
-            feature: "system function call in comb expression",
-            detail: format!("module `{}`: {call}", module.name),
-        }),
+        Factor::SystemFunctionCall(call) => Err(ParserError::unsupported(
+            LoweringPhase::CombLowering,
+            "system function call in comb expression",
+            format!("module `{}`: {call}", module.name),
+            Some(&factor.token_range()),
+        )),
         Factor::FunctionCall(call) => eval_function_call_expression(module, store, call, arena),
-        Factor::Anonymous(_) | Factor::Unknown(_) => Err(ParserError::UnsupportedCombLowering {
-            feature: "unresolved factor in comb expression",
-            detail: format!("{:?}", factor),
-        }),
+        Factor::Anonymous(_) | Factor::Unknown(_) => Err(ParserError::unsupported(
+            LoweringPhase::CombLowering,
+            "unresolved factor in comb expression",
+            format!("{:?}", factor),
+            Some(&factor.token_range()),
+        )),
     }
 }
 pub fn get_width<A>(expr: NodeId, arena: &SLTNodeArena<A>) -> usize {

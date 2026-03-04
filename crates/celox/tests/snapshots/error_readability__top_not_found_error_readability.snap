@@ -1,0 +1,7 @@
+---
+source: crates/celox/tests/error_readability.rs
+expression: err
+---
+top_not_found
+
+  × Top module `NonExistentTop` not found in IR

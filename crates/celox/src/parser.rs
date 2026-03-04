@@ -3,8 +3,10 @@ use thiserror::Error;
 
 use crate::parser::module::ModuleParser;
 use veryl_analyzer::ir::{Component, Module, VarKind, VarPath};
+use veryl_analyzer::multi_sources::{MultiSources, Source};
 use veryl_metadata::{ClockType, ResetType};
 use veryl_parser::resource_table::{self, StrId};
+use veryl_parser::token_range::TokenRange;
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct BuildConfig {
@@ -44,27 +46,55 @@ pub use scheduler::SchedulerError;
 use std::collections::{BTreeMap, BTreeSet};
 use veryl_analyzer::ir::Declaration;
 
+/// Source location information for rich error diagnostics.
+#[derive(Debug)]
+pub struct SourceLocation {
+    pub source: MultiSources,
+    pub span: miette::SourceSpan,
+}
+
+impl SourceLocation {
+    pub fn from_token(token: &TokenRange) -> Self {
+        let path = token.beg.source.to_string();
+        let text = token.beg.source.get_text();
+        Self {
+            source: MultiSources {
+                sources: vec![Source { path, text }],
+            },
+            span: token.into(),
+        }
+    }
+}
+
+/// The compilation phase where an unsupported feature was encountered.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LoweringPhase {
+    FfLowering,
+    CombLowering,
+    SimulatorParser,
+}
+
+impl std::fmt::Display for LoweringPhase {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LoweringPhase::FfLowering => write!(f, "FF lowering"),
+            LoweringPhase::CombLowering => write!(f, "comb lowering"),
+            LoweringPhase::SimulatorParser => write!(f, "simulator parser"),
+        }
+    }
+}
+
 #[derive(Error, Debug)]
 pub enum ParserError {
     #[error(transparent)]
     Scheduler(SchedulerError<String>),
 
-    #[error("Unsupported in FF lowering: {feature} ({detail})")]
-    UnsupportedFFLowering {
+    #[error("Unsupported in {phase}: {feature} ({detail})")]
+    Unsupported {
+        phase: LoweringPhase,
         feature: &'static str,
         detail: String,
-    },
-
-    #[error("Unsupported in comb lowering: {feature} ({detail})")]
-    UnsupportedCombLowering {
-        feature: &'static str,
-        detail: String,
-    },
-
-    #[error("Unsupported in simulator parser: {feature} ({detail})")]
-    UnsupportedSimulatorParser {
-        feature: &'static str,
-        detail: String,
+        source_location: Option<SourceLocation>,
     },
 
     #[error(
@@ -75,6 +105,7 @@ pub enum ParserError {
         module: String,
         variable: String,
         typ: String,
+        source_location: Option<SourceLocation>,
     },
 
     #[error("Top module `{name}` not found in IR")]
@@ -84,6 +115,78 @@ pub enum ParserError {
     GenericTop { name: String },
 }
 
+impl ParserError {
+    pub fn unsupported(
+        phase: LoweringPhase,
+        feature: &'static str,
+        detail: impl Into<String>,
+        token: Option<&TokenRange>,
+    ) -> Self {
+        ParserError::Unsupported {
+            phase,
+            feature,
+            detail: detail.into(),
+            source_location: token.map(SourceLocation::from_token),
+        }
+    }
+
+    pub fn unresolved_width(
+        module: &veryl_analyzer::ir::Module,
+        var: &veryl_analyzer::ir::Variable,
+        typ: impl Into<String>,
+    ) -> Self {
+        ParserError::UnresolvedWidth {
+            module: module.name.to_string(),
+            variable: var.path.to_string(),
+            typ: typ.into(),
+            source_location: Some(SourceLocation::from_token(&var.token)),
+        }
+    }
+}
+
+impl miette::Diagnostic for ParserError {
+    fn code<'a>(&'a self) -> Option<Box<dyn std::fmt::Display + 'a>> {
+        match self {
+            ParserError::Unsupported { phase, .. } => Some(Box::new(format!("unsupported_{}", match phase {
+                LoweringPhase::FfLowering => "ff_lowering",
+                LoweringPhase::CombLowering => "comb_lowering",
+                LoweringPhase::SimulatorParser => "simulator_parser",
+            }))),
+            ParserError::UnresolvedWidth { .. } => Some(Box::new("unresolved_width")),
+            ParserError::Scheduler(_) => Some(Box::new("scheduler")),
+            ParserError::TopNotFound { .. } => Some(Box::new("top_not_found")),
+            ParserError::GenericTop { .. } => Some(Box::new("generic_top")),
+        }
+    }
+
+    fn severity(&self) -> Option<miette::Severity> {
+        Some(miette::Severity::Error)
+    }
+
+    fn source_code(&self) -> Option<&dyn miette::SourceCode> {
+        let loc = match self {
+            ParserError::Unsupported { source_location, .. }
+            | ParserError::UnresolvedWidth { source_location, .. } => source_location.as_ref(),
+            _ => None,
+        };
+        loc.map(|l| &l.source as &dyn miette::SourceCode)
+    }
+
+    fn labels(&self) -> Option<Box<dyn Iterator<Item = miette::LabeledSpan> + '_>> {
+        let loc = match self {
+            ParserError::Unsupported { source_location, .. }
+            | ParserError::UnresolvedWidth { source_location, .. } => source_location.as_ref(),
+            _ => None,
+        };
+        loc.map(|l| {
+            Box::new(std::iter::once(miette::LabeledSpan::new_with_span(
+                Some("Error location".to_string()),
+                l.span,
+            ))) as Box<dyn Iterator<Item = miette::LabeledSpan>>
+        })
+    }
+}
+
 /// Resolve the total bit width of a variable (width * kind), returning
 /// `ParserError::UnresolvedWidth` when it cannot be determined at compile time.
 pub(crate) fn resolve_width(
@@ -91,11 +194,7 @@ pub(crate) fn resolve_width(
     var: &veryl_analyzer::ir::Variable,
 ) -> Result<usize, ParserError> {
     var.total_width()
-        .ok_or_else(|| ParserError::UnresolvedWidth {
-            module: module.name.to_string(),
-            variable: var.path.to_string(),
-            typ: var.r#type.to_string(),
-        })
+        .ok_or_else(|| ParserError::unresolved_width(module, var, var.r#type.to_string()))
 }
 
 /// Resolve the total storage size of a variable (total_width * total_array),
@@ -106,19 +205,11 @@ pub(crate) fn resolve_total_width(
 ) -> Result<usize, ParserError> {
     let width = var
         .total_width()
-        .ok_or_else(|| ParserError::UnresolvedWidth {
-            module: module.name.to_string(),
-            variable: var.path.to_string(),
-            typ: var.r#type.to_string(),
-        })?;
+        .ok_or_else(|| ParserError::unresolved_width(module, var, var.r#type.to_string()))?;
     let array = var
         .r#type
         .total_array()
-        .ok_or_else(|| ParserError::UnresolvedWidth {
-            module: module.name.to_string(),
-            variable: var.path.to_string(),
-            typ: var.r#type.to_string(),
-        })?;
+        .ok_or_else(|| ParserError::unresolved_width(module, var, var.r#type.to_string()))?;
     Ok(width * array)
 }
 
@@ -130,11 +221,7 @@ pub(crate) fn resolve_shape_total(
     var.r#type
         .width
         .total()
-        .ok_or_else(|| ParserError::UnresolvedWidth {
-            module: module.name.to_string(),
-            variable: var.path.to_string(),
-            typ: var.r#type.to_string(),
-        })
+        .ok_or_else(|| ParserError::unresolved_width(module, var, var.r#type.to_string()))
 }
 
 /// Resolve each dimension in an array/width shape, returning an error when any is `None`.
@@ -147,10 +234,12 @@ pub(crate) fn resolve_dims(
     shape
         .iter()
         .map(|d| {
-            d.ok_or_else(|| ParserError::UnresolvedWidth {
-                module: module.name.to_string(),
-                variable: var.path.to_string(),
-                typ: format!("{} dimension in {}", kind, var.r#type),
+            d.ok_or_else(|| {
+                ParserError::unresolved_width(
+                    module,
+                    var,
+                    format!("{} dimension in {}", kind, var.r#type),
+                )
             })
         })
         .collect()
@@ -184,10 +273,12 @@ pub fn parse_ir<'a>(
                 unreachable!("Interface component must be eliminated before simulator parse_ir")
             }
             Component::SystemVerilog(sv) => {
-                return Err(ParserError::UnsupportedSimulatorParser {
-                    feature: "systemverilog component",
-                    detail: format!("name: {:?}", sv.name),
-                });
+                return Err(ParserError::unsupported(
+                    LoweringPhase::SimulatorParser,
+                    "systemverilog component",
+                    format!("name: {:?}", sv.name),
+                    None,
+                ));
             }
         }
     }

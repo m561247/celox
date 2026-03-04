@@ -1,4 +1,4 @@
-use celox::{ParserError, SchedulerError, Simulator, SimulatorError};
+use celox::{LoweringPhase, ParserError, SchedulerError, Simulator, SimulatorError};
 
 /// Helper: assert the error is either Analyzer or a specific SIRParser variant.
 /// The updated Veryl analyzer may catch issues before the SIR scheduler does.
@@ -397,13 +397,15 @@ fn test_sv_module_instance_returns_unsupported_parser_error() {
     let result = Simulator::builder(code, "Top").build();
 
     match result {
-        Err(SimulatorError::SIRParser(ParserError::UnsupportedSimulatorParser {
-            feature, ..
+        Err(SimulatorError::SIRParser(ParserError::Unsupported {
+            phase: LoweringPhase::SimulatorParser,
+            feature,
+            ..
         })) => {
             assert_eq!(feature, "systemverilog module instantiation")
         }
-        Err(e) => panic!("expected UnsupportedSimulatorParser for $sv module, got {e:?}"),
-        Ok(_) => panic!("expected UnsupportedSimulatorParser for $sv module, got Ok"),
+        Err(e) => panic!("expected Unsupported(SimulatorParser) for $sv module, got {e:?}"),
+        Ok(_) => panic!("expected Unsupported(SimulatorParser) for $sv module, got Ok"),
     }
 }
 

@@ -1,0 +1,7 @@
+---
+source: crates/celox/tests/error_readability.rs
+expression: err
+---
+scheduler
+
+  × Combinational loop detected: y[0] -> z[0] -> x[0]

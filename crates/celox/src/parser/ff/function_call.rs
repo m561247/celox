@@ -3,7 +3,7 @@ use crate::{
     HashMap,
     ir::{SIRBuilder, VarAtomBase},
     parser::{
-        ParserError,
+        LoweringPhase, ParserError,
         bitaccess::{build_partial_assign_expr, is_static_access},
     },
 };
@@ -19,10 +19,12 @@ impl<'a> FfParser<'a> {
         state: &HashMap<VarId, Expression>,
     ) -> Result<HashMap<VarId, Expression>, ParserError> {
         let Some(function) = self.module.functions.get(&call.id) else {
-            return Err(ParserError::UnsupportedFFLowering {
-                feature: "function call",
-                detail: format!("unknown function id: {:?}", call.id),
-            });
+            return Err(ParserError::unsupported(
+                LoweringPhase::FfLowering,
+                "function call",
+                format!("unknown function id: {:?}", call.id),
+                Some(&call.comptime.token),
+            ));
         };
 
         let Some(function_body) = (if let Some(index) = &call.index {
@@ -30,10 +32,12 @@ impl<'a> FfParser<'a> {
         } else {
             function.get_function(&[])
         }) else {
-            return Err(ParserError::UnsupportedFFLowering {
-                feature: "function call specialization",
-                detail: format!("{call}"),
-            });
+            return Err(ParserError::unsupported(
+                LoweringPhase::FfLowering,
+                "function call specialization",
+                format!("{call}"),
+                Some(&call.comptime.token),
+            ));
         };
 
         let mut bindings: HashMap<VarId, Expression> = HashMap::default();
@@ -46,17 +50,21 @@ impl<'a> FfParser<'a> {
         let mut next = state.clone();
         for (arg_path, dsts) in &call.outputs {
             let Some(arg_id) = function_body.arg_map.get(arg_path) else {
-                return Err(ParserError::UnsupportedFFLowering {
-                    feature: "function call missing argument",
-                    detail: format!("{call}"),
-                });
+                return Err(ParserError::unsupported(
+                    LoweringPhase::FfLowering,
+                    "function call missing argument",
+                    format!("{call}"),
+                    Some(&call.comptime.token),
+                ));
             };
 
             if dsts.len() != 1 {
-                return Err(ParserError::UnsupportedFFLowering {
-                    feature: "function body call output assignment shape",
-                    detail: format!("{call}"),
-                });
+                return Err(ParserError::unsupported(
+                    LoweringPhase::FfLowering,
+                    "function body call output assignment shape",
+                    format!("{call}"),
+                    Some(&call.comptime.token),
+                ));
             }
 
             let dst = &dsts[0];
@@ -80,10 +88,12 @@ impl<'a> FfParser<'a> {
                 let merged = build_partial_assign_expr(self.module, dst, expr, old_value)?;
                 next.insert(dst.id, merged);
             } else {
-                return Err(ParserError::UnsupportedFFLowering {
-                    feature: "function body call output non-whole assignment (dynamic index)",
-                    detail: format!("{call}"),
-                });
+                return Err(ParserError::unsupported(
+                    LoweringPhase::FfLowering,
+                    "function body call output non-whole assignment (dynamic index)",
+                    format!("{call}"),
+                    Some(&call.comptime.token),
+                ));
             }
         }
 
@@ -214,10 +224,12 @@ impl<'a> FfParser<'a> {
             match stmt {
                 Statement::Assign(assign) => {
                     if assign.dst.len() != 1 {
-                        return Err(ParserError::UnsupportedFFLowering {
-                            feature: "function body assignment shape",
-                            detail: format!("{stmt}"),
-                        });
+                        return Err(ParserError::unsupported(
+                            LoweringPhase::FfLowering,
+                            "function body assignment shape",
+                            format!("{stmt}"),
+                            Some(&assign.token),
+                        ));
                     }
 
                     let dst = &assign.dst[0];
@@ -241,10 +253,12 @@ impl<'a> FfParser<'a> {
                         let merged = build_partial_assign_expr(parser.module, dst, rhs, old_value)?;
                         next.insert(dst.id, merged);
                     } else {
-                        return Err(ParserError::UnsupportedFFLowering {
-                            feature: "function body non-whole assignment (dynamic index)",
-                            detail: format!("{stmt}"),
-                        });
+                        return Err(ParserError::unsupported(
+                            LoweringPhase::FfLowering,
+                            "function body non-whole assignment (dynamic index)",
+                            format!("{stmt}"),
+                            Some(&assign.token),
+                        ));
                     }
                     Ok(next)
                 }
@@ -261,11 +275,21 @@ impl<'a> FfParser<'a> {
                     Ok(merge_branch_state(&cond, then_state, else_state))
                 }
                 Statement::Null => Ok(state.clone()),
-                Statement::IfReset(_) | Statement::SystemFunctionCall(_) => {
-                    Err(ParserError::UnsupportedFFLowering {
-                        feature: "function body control flow",
-                        detail: format!("{stmt}"),
-                    })
+                Statement::IfReset(ir) => {
+                    Err(ParserError::unsupported(
+                        LoweringPhase::FfLowering,
+                        "function body control flow",
+                        format!("{stmt}"),
+                        Some(&ir.token),
+                    ))
+                }
+                Statement::SystemFunctionCall(sc) => {
+                    Err(ParserError::unsupported(
+                        LoweringPhase::FfLowering,
+                        "function body control flow",
+                        format!("{stmt}"),
+                        Some(&sc.comptime.token),
+                    ))
                 }
                 Statement::FunctionCall(call) => parser.apply_function_call_to_state(call, state),
             }
@@ -290,10 +314,12 @@ impl<'a> FfParser<'a> {
         state
             .get(&target_id)
             .cloned()
-            .ok_or_else(|| ParserError::UnsupportedFFLowering {
-                feature: "function return expression",
-                detail: format!("function target var id: {:?}", target_id),
-            })
+            .ok_or_else(|| ParserError::unsupported(
+                LoweringPhase::FfLowering,
+                "function return expression",
+                format!("function target var id: {:?}", target_id),
+                None,
+            ))
     }
 
     pub(super) fn extract_function_return_expr(
@@ -318,10 +344,12 @@ impl<'a> FfParser<'a> {
             match stmt {
                 Statement::Assign(assign) => {
                     if assign.dst.len() != 1 {
-                        return Err(ParserError::UnsupportedFFLowering {
-                            feature: "function body assignment shape",
-                            detail: format!("{stmt}"),
-                        });
+                        return Err(ParserError::unsupported(
+                            LoweringPhase::FfLowering,
+                            "function body assignment shape",
+                            format!("{stmt}"),
+                            Some(&assign.token),
+                        ));
                     }
 
                     let dst = &assign.dst[0];
@@ -357,10 +385,12 @@ impl<'a> FfParser<'a> {
                         next_defs.insert(dst.id, merged);
                         resolve_return_expr(parser, rest, ret_id, &next_defs, substitute)
                     } else {
-                        Err(ParserError::UnsupportedFFLowering {
-                            feature: "function body non-whole assignment (dynamic index)",
-                            detail: format!("{stmt}"),
-                        })
+                        Err(ParserError::unsupported(
+                            LoweringPhase::FfLowering,
+                            "function body non-whole assignment (dynamic index)",
+                            format!("{stmt}"),
+                            Some(&assign.token),
+                        ))
                     }
                 }
                 Statement::If(if_stmt) => {
@@ -387,11 +417,21 @@ impl<'a> FfParser<'a> {
                     }
                 }
                 Statement::Null => resolve_return_expr(parser, rest, ret_id, defs, substitute),
-                Statement::IfReset(_) | Statement::SystemFunctionCall(_) => {
-                    Err(ParserError::UnsupportedFFLowering {
-                        feature: "function body control flow",
-                        detail: format!("{stmt}"),
-                    })
+                Statement::IfReset(ir) => {
+                    Err(ParserError::unsupported(
+                        LoweringPhase::FfLowering,
+                        "function body control flow",
+                        format!("{stmt}"),
+                        Some(&ir.token),
+                    ))
+                }
+                Statement::SystemFunctionCall(sc) => {
+                    Err(ParserError::unsupported(
+                        LoweringPhase::FfLowering,
+                        "function body control flow",
+                        format!("{stmt}"),
+                        Some(&sc.comptime.token),
+                    ))
                 }
                 Statement::FunctionCall(call) => {
                     let next_defs = parser.apply_function_call_to_state(call, defs)?;
@@ -407,10 +447,12 @@ impl<'a> FfParser<'a> {
             &HashMap::default(),
             &|expr, defs| Self::substitute_function_expr(expr, defs),
         )?
-        .ok_or_else(|| ParserError::UnsupportedFFLowering {
-            feature: "function return expression",
-            detail: format!("function call to id {:?}", ret_id),
-        })
+        .ok_or_else(|| ParserError::unsupported(
+            LoweringPhase::FfLowering,
+            "function return expression",
+            format!("function call to id {:?}", ret_id),
+            None,
+        ))
     }
 
     pub(super) fn parse_function_call_expr<A>(
@@ -423,10 +465,12 @@ impl<'a> FfParser<'a> {
         ir_builder: &mut SIRBuilder<A>,
     ) -> Result<(), ParserError> {
         let Some(function) = self.module.functions.get(&call.id) else {
-            return Err(ParserError::UnsupportedFFLowering {
-                feature: "function call",
-                detail: format!("unknown function id: {:?}", call.id),
-            });
+            return Err(ParserError::unsupported(
+                LoweringPhase::FfLowering,
+                "function call",
+                format!("unknown function id: {:?}", call.id),
+                Some(&call.comptime.token),
+            ));
         };
 
         let Some(function_body) = (if let Some(index) = &call.index {
@@ -434,10 +478,12 @@ impl<'a> FfParser<'a> {
         } else {
             function.get_function(&[])
         }) else {
-            return Err(ParserError::UnsupportedFFLowering {
-                feature: "function call specialization",
-                detail: format!("{call}"),
-            });
+            return Err(ParserError::unsupported(
+                LoweringPhase::FfLowering,
+                "function call specialization",
+                format!("{call}"),
+                Some(&call.comptime.token),
+            ));
         };
 
         let mut bindings: HashMap<VarId, Expression> = HashMap::default();
@@ -449,10 +495,12 @@ impl<'a> FfParser<'a> {
 
         for (arg_path, dsts) in &call.outputs {
             let Some(arg_id) = function_body.arg_map.get(arg_path) else {
-                return Err(ParserError::UnsupportedFFLowering {
-                    feature: "function call missing argument",
-                    detail: format!("{call}"),
-                });
+                return Err(ParserError::unsupported(
+                    LoweringPhase::FfLowering,
+                    "function call missing argument",
+                    format!("{call}"),
+                    Some(&call.comptime.token),
+                ));
             };
 
             let expr = self.extract_function_target_expr(&function_body, *arg_id, &bindings)?;
@@ -470,10 +518,12 @@ impl<'a> FfParser<'a> {
         }
 
         let Some(ret_id) = function_body.ret else {
-            return Err(ParserError::UnsupportedFFLowering {
-                feature: "void function call in expression",
-                detail: format!("{call}"),
-            });
+            return Err(ParserError::unsupported(
+                LoweringPhase::FfLowering,
+                "void function call in expression",
+                format!("{call}"),
+                Some(&call.comptime.token),
+            ));
         };
 
         let ret_expr = self.extract_function_return_expr(&function_body, ret_id)?;
@@ -497,10 +547,12 @@ impl<'a> FfParser<'a> {
         ir_builder: &mut SIRBuilder<A>,
     ) -> Result<(), ParserError> {
         let Some(function) = self.module.functions.get(&call.id) else {
-            return Err(ParserError::UnsupportedFFLowering {
-                feature: "function call",
-                detail: format!("unknown function id: {:?}", call.id),
-            });
+            return Err(ParserError::unsupported(
+                LoweringPhase::FfLowering,
+                "function call",
+                format!("unknown function id: {:?}", call.id),
+                Some(&call.comptime.token),
+            ));
         };
 
         let Some(function_body) = (if let Some(index) = &call.index {
@@ -508,10 +560,12 @@ impl<'a> FfParser<'a> {
         } else {
             function.get_function(&[])
         }) else {
-            return Err(ParserError::UnsupportedFFLowering {
-                feature: "function call specialization",
-                detail: format!("{call}"),
-            });
+            return Err(ParserError::unsupported(
+                LoweringPhase::FfLowering,
+                "function call specialization",
+                format!("{call}"),
+                Some(&call.comptime.token),
+            ));
         };
 
         if call.outputs.is_empty() {
@@ -531,10 +585,12 @@ impl<'a> FfParser<'a> {
 
         for (arg_path, dsts) in &call.outputs {
             let Some(arg_id) = function_body.arg_map.get(arg_path) else {
-                return Err(ParserError::UnsupportedFFLowering {
-                    feature: "function call missing argument",
-                    detail: format!("{call}"),
-                });
+                return Err(ParserError::unsupported(
+                    LoweringPhase::FfLowering,
+                    "function call missing argument",
+                    format!("{call}"),
+                    Some(&call.comptime.token),
+                ));
             };
 
             let expr = self.extract_function_target_expr(&function_body, *arg_id, &bindings)?;

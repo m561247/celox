@@ -1,5 +1,5 @@
 use crate::ir::RegisterType;
-use crate::parser::{ParserError, resolve_total_width};
+use crate::parser::{LoweringPhase, ParserError, resolve_total_width};
 
 use veryl_analyzer::ir::{Module, VarId};
 
@@ -9,9 +9,13 @@ pub fn get_port_type(module: &Module, port_id: &VarId) -> Result<RegisterType, P
         module
             .variables
             .get(port_id)
-            .ok_or_else(|| ParserError::UnsupportedSimulatorParser {
-                feature: "port lookup",
-                detail: format!("port ID not found in child module: {}", module.name),
+            .ok_or_else(|| {
+                ParserError::unsupported(
+                    LoweringPhase::SimulatorParser,
+                    "port lookup",
+                    format!("port ID not found in child module: {}", module.name),
+                    None,
+                )
             })?;
 
     let width = resolve_total_width(module, var)?;

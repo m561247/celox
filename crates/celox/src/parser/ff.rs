@@ -6,7 +6,7 @@ use crate::ir::{
 };
 use crate::{
     HashMap, HashSet,
-    parser::{BuildConfig, ParserError, bitaccess::eval_var_select},
+    parser::{BuildConfig, LoweringPhase, ParserError, bitaccess::eval_var_select},
 };
 use bit_set::BitSet;
 use num_traits::ToPrimitive;
@@ -292,10 +292,12 @@ impl<'a> FfParser<'a> {
             }
             Statement::Null => {}
             Statement::SystemFunctionCall(call) => {
-                return Err(ParserError::UnsupportedFFLowering {
-                    feature: "system function call",
-                    detail: format!("{call}"),
-                });
+                return Err(ParserError::unsupported(
+                    LoweringPhase::FfLowering,
+                    "system function call",
+                    format!("{call}"),
+                    Some(&call.comptime.token),
+                ));
             }
             Statement::FunctionCall(call) => {
                 self.parse_function_call_statement(

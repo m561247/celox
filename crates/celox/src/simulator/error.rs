@@ -33,7 +33,7 @@ pub enum SimulatorError {
 impl fmt::Display for SimulatorError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            SimulatorError::SIRParser(e) => write!(f, "{e}"),
+            SimulatorError::SIRParser(e) => f.write_str(&render_diagnostic(e)),
             SimulatorError::Analyzer(errors) => {
                 for (i, e) in errors.iter().enumerate() {
                     if i > 0 {
