@@ -205,5 +205,40 @@ fn test_interface_wide_signal() {
     assert_eq!(sim.get(out), 0x1234_5678u32.into());
 }
 
+/// Parametric interface array: verify array_dims are populated for parametric-type members.
+#[test]
+#[ignore = "blocked by upstream Veryl IR bug: generic type param not resolved in interface member width"]
+fn test_parametric_interface_array() {
+    let code = r#"
+    interface Bus::<T: type> {
+        var data:  T;
+        var valid: logic;
+        modport consumer {
+            data:  input,
+            valid: input,
+        }
+    }
 
+    module Top #(
+        param T: type = logic<8>,
+    ) (
+        bus: modport Bus::<T>::consumer [2],
+        out: output logic<8>,
+    ) {
+        assign out = bus.data[0] + bus.data[1];
+    }
+    "#;
 
+    let sim = Simulator::builder(code, "Top").build().unwrap();
+    let signals = sim.named_signals();
+
+    let bus_data = signals.iter().find(|s| s.name == "bus.data").expect("bus.data not found");
+    let bus_valid = signals.iter().find(|s| s.name == "bus.valid").expect("bus.valid not found");
+
+    assert_eq!(bus_data.info.array_dims, vec![2], "bus.data should have array_dims [2]");
+    assert_eq!(bus_valid.info.array_dims, vec![2], "bus.valid should have array_dims [2]");
+
+    // For a [2] array of logic<8>, total signal width = 16
+    assert_eq!(bus_data.signal.width, 16, "bus.data total signal width");
+    assert_eq!(bus_valid.signal.width, 2, "bus.valid total signal width");
+}
