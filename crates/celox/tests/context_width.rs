@@ -1,7 +1,6 @@
 use celox::SimulatorBuilder;
 
 #[test]
-#[ignore = "analyzer constant folding returns invalid results"]
 fn test_context_determined_width_subtraction() {
     let code = r#"
         module Top (
@@ -49,7 +48,6 @@ fn test_context_determined_width_subtraction() {
 }
 
 #[test]
-#[ignore = "analyzer constant folding returns invalid results"]
 fn test_unsized_constant_width_subtraction() {
     let code = r#"
         module Top (
