@@ -445,7 +445,7 @@ module LogicBitMix (
     y_logic_from_bit: output logic<8>,
     y_bit_from_logic: output bit<8>,
 ) {
-    assign y_bit_from_logic = a_logic;
+    assign y_bit_from_logic = a_logic as u8;
     assign y_logic_from_bit = b_bit;
 }
 `;
