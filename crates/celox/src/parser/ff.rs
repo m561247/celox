@@ -54,11 +54,13 @@ impl<'a> FfParser<'a> {
     }
 
     fn get_constant_value(&self, expr: &Expression) -> Option<u64> {
-        if let Expression::Term(factor) = expr
-            && let Factor::Value(comptime) = factor.as_ref()
-            && let Ok(val) = comptime.get_value()
-        {
-            return val.payload().to_u64();
+        let comptime = expr.comptime();
+        let is_value =
+            matches!(expr, Expression::Term(f) if matches!(f.as_ref(), Factor::Value(_)));
+        if comptime.is_const || (is_value && comptime.evaluated) {
+            if let Ok(val) = comptime.get_value() {
+                return val.payload().to_u64();
+            }
         }
         None
     }

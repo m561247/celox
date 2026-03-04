@@ -1456,6 +1456,24 @@ impl<'a> FfParser<'a> {
         ir_builder: &mut SIRBuilder<A>,
         context_width: Option<usize>,
     ) -> Result<(), ParserError> {
+        // Short-circuit: compile-time constant compound expression → emit constant value
+        if !matches!(expr, Expression::Term(_)) {
+            let ct = expr.comptime();
+            if ct.is_const {
+                if let Ok(val) = ct.get_value() {
+                    let mask_xz = val.mask_xz().into_owned();
+                    let payload = val.payload().into_owned();
+                    let celox_value = &payload ^ &mask_xz;
+                    self.op_constant(
+                        SIRValue::new_four_state(celox_value, mask_xz),
+                        val.width(),
+                        ir_builder,
+                    );
+                    return Ok(());
+                }
+            }
+        }
+
         match expr {
             Expression::Term(factor) => {
                 self.parse_factor(

@@ -1344,6 +1344,22 @@ pub fn eval_expression(
     arena: &mut SLTNodeArena<VarId>,
     context_width: Option<usize>,
 ) -> Result<((NodeId, HashSet<VarAtomBase<VarId>>), BoundaryMap<VarId>), ParserError> {
+    // Short-circuit: compile-time constant compound expression → emit Constant node
+    if !matches!(expr, Expression::Term(_)) {
+        let ct = expr.comptime();
+        if ct.is_const {
+            if let Ok(val) = ct.get_value() {
+                let mask_xz = val.mask_xz().into_owned();
+                let payload = val.payload().into_owned();
+                let celox_value = &payload ^ &mask_xz;
+                let width = val.width();
+                let signed = val.signed();
+                let expr = arena.alloc(SLTNode::Constant(celox_value, mask_xz, width, signed));
+                return Ok(((expr, HashSet::default()), BoundaryMap::default()));
+            }
+        }
+    }
+
     match expr {
         Expression::Term(factor) => eval_factor(module, store, factor, arena, context_width),
         Expression::Binary(lhs, op, rhs, _) => {

@@ -10,21 +10,15 @@ use veryl_parser::token_range::TokenRange;
 
 use crate::ir::BitAccess;
 
-// TODO: I feel this is definitely not enough
 pub fn eval_constexpr(expr: &Expression) -> Option<BigUint> {
-    match expr {
-        Expression::Term(factor) => match factor.as_ref() {
-            Factor::Variable(_var_id, _var_index, _var_select, comptime) if comptime.is_const => {
-                comptime.get_value().ok().map(|e| e.payload().into_owned())
-            }
-            Factor::Value(comptime) if comptime.is_const || comptime.evaluated => {
-                comptime.get_value().ok().map(|e| e.payload().into_owned())
-            }
-            // TODO: There are cases where constant folding can be properly performed
-            _ => None,
-        },
-        // TODO: There are cases where constant folding can be properly performed
-        _ => None,
+    let comptime = expr.comptime();
+    // `evaluated` is only trusted for Factor::Value (literals); for variables and
+    // compound expressions we require `is_const` (true compile-time constants).
+    let is_value = matches!(expr, Expression::Term(f) if matches!(f.as_ref(), Factor::Value(_)));
+    if comptime.is_const || (is_value && comptime.evaluated) {
+        comptime.get_value().ok().map(|e| e.payload().into_owned())
+    } else {
+        None
     }
 }
 
