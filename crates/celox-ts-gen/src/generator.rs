@@ -210,6 +210,8 @@ fn extract_instances(module: &Module) -> Vec<InstanceInfo> {
             resource_table::get_str_value(sub_module.name).unwrap_or_else(|| "unknown".to_string());
 
         if let Some(existing) = grouped.get_mut(&inst_name) {
+            // All for-loop iterations instantiate the same module with the same
+            // port set, so we only need ports/children from the first occurrence.
             existing.count += 1;
         } else {
             let ports = extract_ports(sub_module);
@@ -904,6 +906,10 @@ module Top (
         assert_eq!(top.instances[0].name, "u_sub");
         assert!(top.instances[0].ports.contains_key("i_data"));
         assert!(top.instances[0].ports.contains_key("o_data"));
+
+        // Single instance: count must be omitted from JSON
+        let json = serde_json::to_value(&top.instances[0]).unwrap();
+        assert!(json.get("count").is_none(), "count must be omitted for single instances");
     }
 
     /// Interface port: a module that takes a modport as a top-level port.
@@ -1077,6 +1083,14 @@ module Top (
         );
 
         assert_snapshot!("for_loop_instances_dts", top.dts_content);
+
+        // JSON: count must be serialized for for-loop instances, omitted for single
+        let json = serde_json::to_value(&top.instances[0]).unwrap();
+        assert_eq!(json["count"], 2);
+
+        // Verify single-instance modules omit count (skip_serializing_if)
+        let sub = modules.iter().find(|m| m.module_name == "Sub").unwrap();
+        assert!(sub.instances.is_empty());
     }
 
     /// Internal vars: a module with `var` declarations that are not ports.
