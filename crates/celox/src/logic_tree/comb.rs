@@ -1843,17 +1843,42 @@ fn eval_factor(
         Factor::Variable(var_id, index, select, comptime) => {
             // Compile-time constant (e.g. genvar inside generate block): emit a
             // constant node directly instead of loading from memory.
-            if comptime.is_const && index.0.is_empty() && select.0.is_empty() && select.1.is_none()
-            {
-                if let Some((celox_value, mask_xz, width, signed)) =
-                    celox_value_from_comptime(comptime)
+            // Also handles constant[const_index] (e.g. IDX[p] in generate loops).
+            if comptime.is_const {
+                let is_bare = index.0.is_empty()
+                    && select.0.is_empty()
+                    && select.1.is_none();
+                let is_static_sel =
+                    !is_bare && crate::parser::bitaccess::is_static_access(index, select);
+
+                if (is_bare || is_static_sel)
+                    && let Some((celox_value, mask_xz, full_width, signed)) =
+                        celox_value_from_comptime(comptime)
                 {
-                    let mut expr =
-                        arena.alloc(SLTNode::Constant(celox_value, mask_xz, width, signed));
+                    let (val, mask, width) = if is_bare {
+                        (celox_value, mask_xz, full_width)
+                    } else {
+                        // Evaluate the static bit-select on the constant value
+                        let access =
+                            eval_var_select(module, *var_id, index, select)?;
+                        let extracted_width = access.msb - access.lsb + 1;
+                        let extracted_val =
+                            (&celox_value >> access.lsb)
+                                & ((BigUint::from(1u64) << extracted_width)
+                                    - BigUint::from(1u64));
+                        let extracted_mask =
+                            (&mask_xz >> access.lsb)
+                                & ((BigUint::from(1u64) << extracted_width)
+                                    - BigUint::from(1u64));
+                        (extracted_val, extracted_mask, extracted_width)
+                    };
+
+                    let mut expr = arena
+                        .alloc(SLTNode::Constant(val, mask, width, signed && is_bare));
                     if let Some(target_width) = context_width {
                         if width < target_width {
                             let pad_width = target_width - width;
-                            let pad = if signed {
+                            let pad = if signed && is_bare {
                                 let msb_slice = arena.alloc(SLTNode::Slice {
                                     expr,
                                     access: BitAccess::new(width - 1, width - 1),
