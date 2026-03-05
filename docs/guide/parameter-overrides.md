@@ -65,6 +65,37 @@ The override values are injected into the Veryl analyzer before compilation. All
 
 Parameter values must be integers (number or bigint). Passing a non-integer value (for example, a float or a string) is not supported.
 
+## Limitations: Type Parameters
+
+Only **numeric** parameters (`param WIDTH: u32 = 8`) can be overridden at runtime. **Type parameters** (`type T = logic<8>`) are not supported because they can change the signal structure — port widths, array dimensions, and even which ports exist — making the DUT layout and TypeScript type definitions invalid.
+
+If you need to test a module with different type parameter values, write a wrapper module that fixes the type parameter and place it in a test-only source directory configured via [`celox.toml`](./celox-toml.md):
+
+```toml
+# celox.toml
+[test]
+sources = ["test_veryl"]
+```
+
+```veryl
+// test_veryl/MyModuleWide.veryl
+module MyModuleWide (
+    clk: input clock,
+    rst: input reset,
+    data: input logic<32>,
+    out: output logic<32>,
+) {
+    inst u: MyModule::<logic<32>> (
+        clk,
+        rst,
+        data,
+        out,
+    );
+}
+```
+
+This wrapper is compiled and type-generated alongside your production modules, so the DUT layout and TypeScript types are always consistent.
+
 ## Further Reading
 
 - [Writing Tests](./writing-tests.md) -- Event-based and time-based simulation patterns.

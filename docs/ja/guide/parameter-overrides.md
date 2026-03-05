@@ -65,6 +65,37 @@ const sim = Simulator.fromSource(SOURCE, "Top", {
 
 パラメータの値は整数（`number` または `bigint`）でなければなりません。浮動小数点数や文字列を渡すことはサポートされていません。
 
+## 制約: 型パラメータ
+
+ランタイムでオーバーライドできるのは **数値パラメータ**（`param WIDTH: u32 = 8`）のみです。**型パラメータ**（`type T = logic<8>`）はサポートされていません。型パラメータが変わると信号の構造（ポート幅・配列次元・ポートの有無）が変化し、DUT レイアウトや TypeScript の型定義と矛盾するためです。
+
+異なる型パラメータでテストしたい場合は、型パラメータを固定したラッパーモジュールを書き、[`celox.toml`](./celox-toml.md) でテスト専用ソースディレクトリに配置してください：
+
+```toml
+# celox.toml
+[test]
+sources = ["test_veryl"]
+```
+
+```veryl
+// test_veryl/MyModuleWide.veryl
+module MyModuleWide (
+    clk: input clock,
+    rst: input reset,
+    data: input logic<32>,
+    out: output logic<32>,
+) {
+    inst u: MyModule::<logic<32>> (
+        clk,
+        rst,
+        data,
+        out,
+    );
+}
+```
+
+このラッパーは本番モジュールと一緒にコンパイル・型生成されるため、DUT レイアウトと TypeScript の型が常に整合します。
+
 ## 関連資料
 
 - [テストの書き方](./writing-tests.md) -- イベントベースとタイムベースのシミュレーションパターン。
