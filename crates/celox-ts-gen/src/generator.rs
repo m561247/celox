@@ -62,6 +62,13 @@ pub struct JsonInstanceInfo {
     pub module_name: String,
     pub ports: HashMap<String, JsonPortInfo>,
     pub instances: Vec<JsonInstanceInfo>,
+    /// Number of instances with this name (>1 for for-loop unrolled instances).
+    #[serde(skip_serializing_if = "is_one")]
+    pub count: usize,
+}
+
+fn is_one(v: &usize) -> bool {
+    *v == 1
 }
 
 /// Extract port information from a module.
@@ -175,11 +182,19 @@ struct InstanceInfo {
     module_name: String,
     ports: Vec<PortInfo>,
     children: Vec<InstanceInfo>,
+    /// Number of instances with this name (>1 for for-loop unrolled instances).
+    count: usize,
 }
 
 /// Extract instance information from a module's declarations.
+///
+/// For-loop unrolled instances share the same name. These are grouped into a
+/// single `InstanceInfo` with `count > 1` so that the DTS emits a
+/// `ReadonlyArray<...>` type instead of duplicate properties.
 fn extract_instances(module: &Module) -> Vec<InstanceInfo> {
-    let mut instances = Vec::new();
+    use std::collections::BTreeMap;
+
+    let mut grouped: BTreeMap<String, InstanceInfo> = BTreeMap::new();
 
     for decl in &module.declarations {
         let Declaration::Inst(inst) = decl else {
@@ -194,20 +209,28 @@ fn extract_instances(module: &Module) -> Vec<InstanceInfo> {
         let sub_module_name =
             resource_table::get_str_value(sub_module.name).unwrap_or_else(|| "unknown".to_string());
 
-        let ports = extract_ports(sub_module);
-        let children = extract_instances(sub_module);
+        if let Some(existing) = grouped.get_mut(&inst_name) {
+            // All for-loop iterations instantiate the same module with the same
+            // port set, so we only need ports/children from the first occurrence.
+            existing.count += 1;
+        } else {
+            let ports = extract_ports(sub_module);
+            let children = extract_instances(sub_module);
 
-        instances.push(InstanceInfo {
-            name: inst_name,
-            module_name: sub_module_name,
-            ports,
-            children,
-        });
+            grouped.insert(
+                inst_name.clone(),
+                InstanceInfo {
+                    name: inst_name,
+                    module_name: sub_module_name,
+                    ports,
+                    children,
+                    count: 1,
+                },
+            );
+        }
     }
 
-    // Sort instances for deterministic output
-    instances.sort_by(|a, b| a.name.cmp(&b.name));
-    instances
+    grouped.into_values().collect()
 }
 
 /// Convert ports to JSON-serializable format.
@@ -268,6 +291,7 @@ fn instances_to_json(instances: &[InstanceInfo]) -> Vec<JsonInstanceInfo> {
             module_name: inst.module_name.clone(),
             ports: ports_to_json(&inst.ports),
             instances: instances_to_json(&inst.children),
+            count: inst.count,
         })
         .collect()
 }
@@ -490,13 +514,27 @@ fn write_dts_port_members(out: &mut String, ports: &[PortInfo], indent: &str) {
 }
 
 /// Write instance members as inline object types in a DTS interface body.
+///
+/// For-loop unrolled instances (`count > 1`) are emitted as
+/// `ReadonlyArray<{ ... }>` instead of a plain object type.
 fn write_dts_instance_members(out: &mut String, instances: &[InstanceInfo], indent: &str) {
     for inst in instances {
         let child_indent = format!("{}  ", indent);
-        out.push_str(&format!("{}readonly {}: {{\n", indent, inst.name));
+        if inst.count > 1 {
+            out.push_str(&format!(
+                "{}readonly {}: ReadonlyArray<{{\n",
+                indent, inst.name
+            ));
+        } else {
+            out.push_str(&format!("{}readonly {}: {{\n", indent, inst.name));
+        }
         write_dts_port_members(out, &inst.ports, &child_indent);
         write_dts_instance_members(out, &inst.children, &child_indent);
-        out.push_str(&format!("{}}};\n", indent));
+        if inst.count > 1 {
+            out.push_str(&format!("{}}}>;\n", indent));
+        } else {
+            out.push_str(&format!("{}}};\n", indent));
+        }
     }
 }
 
@@ -868,6 +906,10 @@ module Top (
         assert_eq!(top.instances[0].name, "u_sub");
         assert!(top.instances[0].ports.contains_key("i_data"));
         assert!(top.instances[0].ports.contains_key("o_data"));
+
+        // Single instance: count must be omitted from JSON
+        let json = serde_json::to_value(&top.instances[0]).unwrap();
+        assert!(json.get("count").is_none(), "count must be omitted for single instances");
     }
 
     /// Interface port: a module that takes a modport as a top-level port.
@@ -989,6 +1031,66 @@ module Top (
             top.dts_content.contains("at(i: number)"),
             "DTS must contain array accessor"
         );
+    }
+
+    /// For-loop containing instances: instance names like `k[0]`, `k[1]`
+    /// must be emitted with quoted keys in JS and quoted/computed names in DTS.
+    #[test]
+    fn test_for_loop_instances() {
+        let code = r#"
+module Sub (
+    clk: input '_ clock,
+    i_data: input logic<8>,
+    o_data: output logic<8>,
+) {
+    always_comb {
+        o_data = i_data;
+    }
+}
+
+module Top (
+    clk: input '_ clock,
+    rst: input reset,
+    top_in: input logic<8>,
+    top_out: output logic<8>[2],
+) {
+    for i in 0..2: g {
+        inst u_sub: Sub (
+            clk,
+            i_data: top_in,
+            o_data: top_out[i],
+        );
+    }
+}
+"#;
+        let modules = generate_from_source(code);
+        let top = modules.iter().find(|m| m.module_name == "Top").unwrap();
+
+        // For-loop instances must be grouped into a single entry
+        assert_eq!(top.instances.len(), 1);
+        assert_eq!(top.instances[0].name, "u_sub");
+        assert_eq!(top.instances[0].count, 2);
+
+        // DTS must emit ReadonlyArray for for-loop instances, not duplicate properties
+        assert!(
+            top.dts_content.contains("ReadonlyArray<"),
+            "DTS must use ReadonlyArray for for-loop instances"
+        );
+        assert_eq!(
+            top.dts_content.matches("readonly u_sub:").count(),
+            1,
+            "DTS must have exactly one u_sub property"
+        );
+
+        assert_snapshot!("for_loop_instances_dts", top.dts_content);
+
+        // JSON: count must be serialized for for-loop instances, omitted for single
+        let json = serde_json::to_value(&top.instances[0]).unwrap();
+        assert_eq!(json["count"], 2);
+
+        // Verify single-instance modules omit count (skip_serializing_if)
+        let sub = modules.iter().find(|m| m.module_name == "Sub").unwrap();
+        assert!(sub.instances.is_empty());
     }
 
     /// Internal vars: a module with `var` declarations that are not ports.
