@@ -83,34 +83,19 @@ const t = sim.waitForCycles("clk", 10);
 - モニタプロセス (`$monitor` 相当)
 - 信号プローブ (ポート値以外の内部状態)
 
-#### 3.3 Force / Release [未実装]
+#### ~~3.3 Force / Release~~ [対応不要]
 
-**影響**: 中
+`child_signal()` / `instance_signals()` でサブモジュールのポートに読み書きできるため、force/release の必要性は低い。設計スコープ外とする。
 
-- 内部信号の強制上書き
-- トップレベルポートのみ書き込み可能で、サブモジュール内部には介入不可
+#### ~~3.4 内部信号アクセス~~ [実装済み]
 
-#### 3.4 内部信号アクセス [未実装]
+- Rust: `child_signal()` / `instance_signals()` / `named_hierarchy()` でサブモジュールのポートにアクセス可能
+- TS (Vite プラグイン): `sim.dut.u_sub.o_data` で型付きアクセス。`fromSource` でも型パラメータ指定で利用可能
+- 深いネスト (`u_mid.u_leaf.o`) にも対応
 
-**影響**: 中
+#### ~~3.5 パラメータオーバーライド~~ [実装済み]
 
-- DUT はトップレベルポートのみ公開
-- サブモジュールの内部変数、レジスタ、配線を参照できない
-- デバッグ・ホワイトボックステストに制約
-
-#### 3.5 パラメータオーバーライド [未実装]
-
-**影響**: 中
-
-- Veryl モジュールのパラメータ (例: `param N: u32 = 1000`) を TS 側から変更不可
-- 同一モジュールの異なるパラメータ構成をテストするには Veryl ソースを書き換える必要あり
-
-```typescript
-// 理想的な API (未実装)
-const sim = await Simulator.create(FIFOModule, {
-  parameters: { DEPTH: 16, WIDTH: 32 },
-});
-```
+数値パラメータ (`param WIDTH: u32 = 8`) は `SimulatorOptions.parameters` でランタイム override 可能。型パラメータ (`type T = logic<8>`) はランタイム override 非対応（信号構造が変わり DUT レイアウト・TS 型と矛盾するため）。型パラメータの変更が必要な場合はラッパーモジュールを `celox.toml` の `[test] sources` に配置する。詳細は [Parameter Overrides](../guide/parameter-overrides.md) を参照。
 
 #### ~~3.6 リセットヘルパー~~ [実装済み]
 
@@ -176,13 +161,11 @@ sim.reset("rst", { activeCycles: 3, activeValue: 1 });
 ### ~~Phase 3c: パワーユーザー機能~~ [完了]
 
 6. ~~**`optimize` / `false_loop` / `true_loop` の NAPI 公開**~~ ✅
-7. **パラメータオーバーライド** [未実装]
+7. ~~**パラメータオーバーライド**~~ ✅ (数値パラメータ。型パラメータは設計上非対応)
 8. ~~**4-state マスク読み取りの高レベル API** — `sim.fourState(portName)` で `FourStateValue` を返す~~ ✅
 
 ### Phase 4: 高度な検証 (将来)
 
-9. パラメータオーバーライド (Phase 3c から移動)
-10. 内部信号アクセス / Force-Release
-11. 信号監視コールバック
-12. 非同期テストベンチフロー (`fork`/`join`)
-13. 制約付きランダム / カバレッジ
+9. 信号監視コールバック
+10. 非同期テストベンチフロー (`fork`/`join`)
+11. 制約付きランダム / カバレッジ

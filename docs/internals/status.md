@@ -28,6 +28,8 @@ This is an overview of the current implementation status and supported features 
 -   **Interfaces**: Hierarchical connection resolution including `modport`.
 -   **Waveform Output**: VCD format generation.
 -   **SignalRef**: Fast signal access from external APIs.
+-   **Child Instance Access**: Read/write sub-module ports via `child_signal()` / `instance_signals()` / `named_hierarchy()`. TypeScript DUT accessors support nested access (`dut.u_sub.o_data`).
+-   **Parameter Overrides**: Numeric parameters can be overridden at runtime via `SimulatorOptions.parameters`. Type parameters are not supported at runtime (use wrapper modules via `celox.toml` `[test] sources`).
 
 ## 4. Unimplemented Features and Future Work
 
