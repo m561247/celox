@@ -1862,9 +1862,7 @@ fn eval_factor(
             // constant node directly instead of loading from memory.
             // Also handles constant[const_index] (e.g. IDX[p] in generate loops).
             if comptime.is_const {
-                let is_bare = index.0.is_empty()
-                    && select.0.is_empty()
-                    && select.1.is_none();
+                let is_bare = index.0.is_empty() && select.0.is_empty() && select.1.is_none();
                 let is_static_sel =
                     !is_bare && crate::parser::bitaccess::is_static_access(index, select);
 
@@ -1876,22 +1874,17 @@ fn eval_factor(
                         (celox_value, mask_xz, full_width)
                     } else {
                         // Evaluate the static bit-select on the constant value
-                        let access =
-                            eval_var_select(module, *var_id, index, select)?;
+                        let access = eval_var_select(module, *var_id, index, select)?;
                         let extracted_width = access.msb - access.lsb + 1;
-                        let extracted_val =
-                            (&celox_value >> access.lsb)
-                                & ((BigUint::from(1u64) << extracted_width)
-                                    - BigUint::from(1u64));
-                        let extracted_mask =
-                            (&mask_xz >> access.lsb)
-                                & ((BigUint::from(1u64) << extracted_width)
-                                    - BigUint::from(1u64));
+                        let extracted_val = (&celox_value >> access.lsb)
+                            & ((BigUint::from(1u64) << extracted_width) - BigUint::from(1u64));
+                        let extracted_mask = (&mask_xz >> access.lsb)
+                            & ((BigUint::from(1u64) << extracted_width) - BigUint::from(1u64));
                         (extracted_val, extracted_mask, extracted_width)
                     };
 
-                    let mut expr = arena
-                        .alloc(SLTNode::Constant(val, mask, width, signed && is_bare));
+                    let mut expr =
+                        arena.alloc(SLTNode::Constant(val, mask, width, signed && is_bare));
                     if let Some(target_width) = context_width {
                         if width < target_width {
                             let pad_width = target_width - width;
