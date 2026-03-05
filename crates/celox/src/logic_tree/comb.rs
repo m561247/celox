@@ -16,7 +16,7 @@ use malachite_bigint::BigUint;
 use num_traits::ToPrimitive as _;
 use veryl_analyzer::ir::{
     ArrayLiteralItem, AssignStatement, CombDeclaration, Comptime, Expression, Factor, IfStatement,
-    Module, Op, Statement, ValueVariant, VarId, VarIndex, VarSelect,
+    Module, Op, Statement, ValueVariant, VarId, VarIndex, VarSelect, VarSelectOp,
 };
 use veryl_parser::token_range::TokenRange;
 
@@ -1944,7 +1944,6 @@ fn eval_factor(
                 // 1. Build node for offset calculation (used by both Shr and Input approaches)
                 let (_, strides, _) =
                     crate::parser::bitaccess::get_dimensions_and_strides(module, *var_id)?;
-                let mut stride_iter = strides.iter();
                 let mut offset_node = arena.alloc(SLTNode::Constant(
                     BigUint::from(0u32),
                     BigUint::from(0u32),
@@ -1954,12 +1953,26 @@ fn eval_factor(
 
                 let mut index_exprs = index.0.clone();
                 index_exprs.extend(select.0.clone());
-                for idx_expr in &index_exprs {
+
+                // For Colon selects (e.g. [31:0]), the last element of
+                // index_exprs is the MSB anchor—not a dimension index.
+                // Exclude it from the dynamic offset and instead encode
+                // the bit range in the Slice node.
+                // For PlusColon/MinusColon/Step, the anchor is the
+                // dynamic start position and belongs in the offset.
+                let is_colon_select = matches!(&select.1, Some((VarSelectOp::Colon, _)));
+                let dim_limit = if is_colon_select {
+                    index_exprs.len().saturating_sub(1)
+                } else {
+                    index_exprs.len()
+                };
+
+                for (dim_i, idx_expr) in index_exprs[..dim_limit].iter().enumerate() {
                     let ((expr, sources), bounds) =
                         eval_expression(module, store, idx_expr, arena, context_width)?;
                     all_bounds = merge_boundaries(all_bounds, bounds);
                     all_sources.extend(sources);
-                    let stride = stride_iter.next().copied().unwrap_or(1);
+                    let stride = strides.get(dim_i).copied().unwrap_or(1);
                     dynamic_indices.push(SLTIndex { node: expr, stride });
 
                     let stride_node = arena.alloc(SLTNode::Constant(
@@ -1971,6 +1984,20 @@ fn eval_factor(
                     let term = arena.alloc(SLTNode::Binary(expr, BinaryOp::Mul, stride_node));
                     offset_node = arena.alloc(SLTNode::Binary(offset_node, BinaryOp::Add, term));
                 }
+
+                // Compute bit-select LSB within the selected element.
+                // For Colon [msb:lsb], the LSB (range_expr) determines
+                // the slice start within the element selected by
+                // the array indices.
+                let bit_select_lsb = if let Some((VarSelectOp::Colon, range_expr)) = &select.1 {
+                    let weight = strides.get(dim_limit).copied().unwrap_or(1);
+                    let rhs = crate::parser::bitaccess::eval_constexpr(range_expr)
+                        .map(|v| v.to_u64_digits().first().copied().unwrap_or(0) as usize)
+                        .unwrap_or(0);
+                    rhs * weight
+                } else {
+                    0
+                };
 
                 // 2. Check SymbolicStore to determine if "already written"
                 let range_store = store.get(var_id).unwrap();
@@ -1989,10 +2016,10 @@ fn eval_factor(
                         index: dynamic_indices,
                         access: BitAccess::new(0, width - 1),
                     });
-                    // Slice is fixed to 0 (take element_width from LSB of Load result)
+                    // Slice from bit_select_lsb for element_width bits
                     arena.alloc(SLTNode::Slice {
                         expr: raw_input,
-                        access: BitAccess::new(0, element_width - 1),
+                        access: BitAccess::new(bit_select_lsb, bit_select_lsb + element_width - 1),
                     })
                 } else {
                     // --- If already written ---
@@ -2003,9 +2030,10 @@ fn eval_factor(
 
                     let shifted =
                         arena.alloc(SLTNode::Binary(current_expr, BinaryOp::Shr, offset_node));
+                    // Slice from bit_select_lsb for element_width bits
                     arena.alloc(SLTNode::Slice {
                         expr: shifted,
-                        access: BitAccess::new(0, element_width - 1),
+                        access: BitAccess::new(bit_select_lsb, bit_select_lsb + element_width - 1),
                     })
                 };
 

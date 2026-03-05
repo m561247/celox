@@ -330,3 +330,43 @@ fn test_genvar_dynamic_index_issue21() {
     assert_eq!((val.clone() >> 32u32) & mask16.clone(), 0xDDDDu32.into()); // o[2] = local_data[3]
     assert_eq!((val.clone() >> 48u32) & mask16.clone(), 0xAAAAu32.into()); // o[3] = local_data[0]
 }
+
+#[test]
+fn test_dynamic_index_with_bitslice() {
+    // Regression: arr[dynamic_idx][hi:lo] produced wrong values because
+    // the bit-select anchor was incorrectly added to the dynamic offset.
+    let code = r#"
+        module Top (
+            idx: input logic<4>,
+            o_lo: output logic<32>,
+            o_hi: output logic<32>
+        ) {
+            var regs: logic<64> [16];
+            always_comb {
+                for i: u32 in 0..16 {
+                    regs[i] = 64'b0;
+                }
+                // regs[0] = 0x00000001_00000000
+                regs[0] = 64'h00000001_00000000;
+                // regs[1] = 0x0000000B_00000001
+                regs[1] = 64'h0000000B_00000001;
+            }
+            assign o_lo = regs[idx][31:0];
+            assign o_hi = regs[idx][63:32];
+        }
+    "#;
+    let mut sim = Simulator::builder(code, "Top").build().unwrap();
+    let idx = sim.signal("idx");
+    let o_lo = sim.signal("o_lo");
+    let o_hi = sim.signal("o_hi");
+
+    // idx=0: regs[0] = 0x00000001_00000000
+    sim.modify(|io| io.set(idx, 0u8)).unwrap();
+    assert_eq!(sim.get(o_lo), 0x00000000u64.into()); // lo 32 bits
+    assert_eq!(sim.get(o_hi), 0x00000001u64.into()); // hi 32 bits
+
+    // idx=1: regs[1] = 0x0000000B_00000001
+    sim.modify(|io| io.set(idx, 1u8)).unwrap();
+    assert_eq!(sim.get(o_lo), 0x00000001u64.into()); // lo 32 bits
+    assert_eq!(sim.get(o_hi), 0x0000000Bu64.into()); // hi 32 bits
+}
