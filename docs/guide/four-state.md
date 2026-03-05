@@ -112,6 +112,7 @@ The returned `FourStateValue` has the following semantics:
 | 0 | 0 | `0` |
 | 0 | 1 | `1` |
 | 1 | 0 | `X` |
+| 1 | 1 | Reserved (eliminated by normalization) |
 
 ::: tip
 For low-level access (e.g. custom buffer manipulation), the `readFourState(buffer, layout)` function is also available as an internal API.

@@ -69,7 +69,7 @@ const sim = Simulator.fromSource(SOURCE, "Top", {
 });
 ```
 
-If the loop does not converge within `maxIter` iterations, the simulation throws a `DetectedTrueLoop` error at runtime.
+If the loop does not converge within `maxIter` iterations, the simulation throws an error with code `DetectedTrueLoop` at runtime.
 
 ::: warning
 A true loop that never converges will always throw at runtime regardless of `maxIter`. This represents combinational oscillation, which is not a valid hardware state.

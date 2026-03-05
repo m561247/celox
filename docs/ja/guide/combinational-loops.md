@@ -68,7 +68,7 @@ const sim = Simulator.fromSource(SOURCE, "Top", {
 });
 ```
 
-`maxIter` 回以内に収束しない場合、シミュレーションは実行時に `DetectedTrueLoop` エラーをスローします。
+`maxIter` 回以内に収束しない場合、シミュレーションは実行時にエラーコード `DetectedTrueLoop` のエラーをスローします。
 
 ::: warning
 永遠に収束しないループは `maxIter` の値によらず常に実行時エラーになります。これは組み合わせ発振であり、有効なハードウェア状態ではありません。
