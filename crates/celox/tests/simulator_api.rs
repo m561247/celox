@@ -1,4 +1,4 @@
-use celox::{Simulator, SimulatorError};
+use celox::{Simulator, SimulatorErrorKind};
 
 /// Test that `try_new` returns Ok for valid designs.
 #[test]
@@ -32,8 +32,8 @@ fn test_try_new_comb_loop() {
     let err = result.expect_err("Expected error for combinational loop");
     assert!(
         matches!(
-            err,
-            SimulatorError::Analyzer(_) | SimulatorError::SIRParser(_)
+            err.kind(),
+            SimulatorErrorKind::Analyzer(_) | SimulatorErrorKind::SIRParser(_)
         ),
         "Expected Analyzer or SIRParser error, got: {err:?}"
     );

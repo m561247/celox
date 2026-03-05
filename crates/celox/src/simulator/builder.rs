@@ -9,7 +9,7 @@ use veryl_parser::resource_table;
 
 use super::Simulator;
 use crate::parser::BuildConfig;
-use crate::{ParserError, SimulatorError, backend::JitBackend, ir::Program, parser};
+use crate::{ParserError, SimulatorError, SimulatorErrorKind, backend::JitBackend, ir::Program, parser};
 fn analyze(
     sources: &[(&str, &Path)],
     top: &str,
@@ -137,9 +137,13 @@ pub(crate) fn compile_to_sir(
     let (real_errors, warnings): (Vec<_>, Vec<_>) =
         errors.into_iter().partition(|e| e.is_error());
     if !real_errors.is_empty() {
-        return Err(SimulatorError::Analyzer(real_errors));
+        return Err(SimulatorError::new(SimulatorErrorKind::Analyzer(real_errors))
+            .with_warnings(warnings));
     }
-    sir.map(|p| (p, warnings)).map_err(SimulatorError::SIRParser)
+    match sir {
+        Ok(p) => Ok((p, warnings)),
+        Err(e) => Err(SimulatorError::from(e).with_warnings(warnings)),
+    }
 }
 /// Controls which stores the dead store elimination pass preserves.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -428,10 +432,10 @@ impl<'a> SimulatorBuilder<'a, Simulator> {
         let mut sim = Simulator::with_backend_and_program(backend, program, warnings);
         if let Some(path) = self.vcd_path {
             let vcd_writer = crate::vcd::VcdWriter::new(path, &sim.program)
-                .map_err(|_| SimulatorError::Runtime(crate::RuntimeErrorCode::InternalError))?;
+                .map_err(|_| SimulatorError::from(crate::RuntimeErrorCode::InternalError))?;
             sim.vcd_writer = Some(vcd_writer);
         }
-        sim.modify(|_| {}).map_err(SimulatorError::Runtime)?;
+        sim.modify(|_| {}).map_err(SimulatorError::from)?;
         Ok(sim)
     }
 
@@ -465,7 +469,7 @@ impl<'a> SimulatorBuilder<'a, Simulator> {
             let backend = JitBackend::new(&program, &self.options, Some(&mut trace))?;
 
             let mut sim = Simulator::with_backend_and_program(backend, program, warnings);
-            sim.modify(|_| {}).map_err(SimulatorError::Runtime)?;
+            sim.modify(|_| {}).map_err(SimulatorError::from)?;
             Ok(sim)
         });
 
@@ -544,10 +548,10 @@ impl<'a> SimulatorBuilder<'a, crate::Simulation> {
         let mut sim = Simulator::with_backend_and_program(backend, program, warnings);
         if let Some(path) = self.vcd_path {
             let vcd_writer = crate::vcd::VcdWriter::new(path, &sim.program)
-                .map_err(|_| SimulatorError::Runtime(crate::RuntimeErrorCode::InternalError))?;
+                .map_err(|_| SimulatorError::from(crate::RuntimeErrorCode::InternalError))?;
             sim.vcd_writer = Some(vcd_writer);
         }
-        sim.modify(|_| {}).map_err(SimulatorError::Runtime)?;
+        sim.modify(|_| {}).map_err(SimulatorError::from)?;
         Ok(crate::Simulation::new(sim))
     }
 }

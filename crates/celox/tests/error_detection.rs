@@ -1,15 +1,15 @@
-use celox::{LoweringPhase, ParserError, SchedulerError, Simulator, SimulatorError};
+use celox::{LoweringPhase, ParserError, SchedulerError, Simulator, SimulatorErrorKind};
 
 /// Helper: assert the error is either Analyzer or a specific SIRParser variant.
 /// The updated Veryl analyzer may catch issues before the SIR scheduler does.
 fn assert_analyzer_or_sir(
-    result: Result<Simulator, SimulatorError>,
-    sir_check: impl FnOnce(&SimulatorError),
+    result: Result<Simulator, celox::SimulatorError>,
+    sir_check: impl FnOnce(&celox::SimulatorError),
 ) {
     let err = result.expect_err("Expected an error");
-    match &err {
-        SimulatorError::Analyzer(_) => {} // OK: analyzer caught it first
-        SimulatorError::SIRParser(_) => sir_check(&err),
+    match err.kind() {
+        SimulatorErrorKind::Analyzer(_) => {} // OK: analyzer caught it first
+        SimulatorErrorKind::SIRParser(_) => sir_check(&err),
         other => panic!("Expected Analyzer or SIRParser error, got: {other:?}"),
     }
 }
@@ -35,8 +35,8 @@ fn test_scheduler_loop_detection() {
     );
 
     if let Err(e) = result {
-        match e {
-            SimulatorError::SIRParser(ParserError::Scheduler(
+        match e.kind() {
+            SimulatorErrorKind::SIRParser(ParserError::Scheduler(
                 SchedulerError::CombinationalLoop { blocks },
             )) => {
                 assert_eq!(blocks.len(), 3, "Loop should involve exactly 3 blocks");
@@ -62,13 +62,13 @@ fn test_combinational_loop() {
     "#;
 
     let result = Simulator::builder(code, "Top").build();
-    match result {
-        Err(SimulatorError::SIRParser(ParserError::Scheduler(
+    match result.as_ref().map_err(|e| e.kind()) {
+        Err(SimulatorErrorKind::SIRParser(ParserError::Scheduler(
             SchedulerError::CombinationalLoop { blocks },
         ))) => {
             assert_eq!(blocks.len(), 2);
         }
-        Err(e) => panic!("Expected CombinationalLoop error, but got: {:?}", e),
+        Err(k) => panic!("Expected CombinationalLoop error, but got: {:?}", k),
         Ok(_) => panic!("Should have failed with CombinationalLoop"),
     }
 }
@@ -233,8 +233,8 @@ fn test_multiple_driver_error() {
         }
     "#;
     let result = Simulator::builder(code, "Top").build();
-    assert_analyzer_or_sir(result, |e| match e {
-        SimulatorError::SIRParser(ParserError::Scheduler(SchedulerError::MultipleDriver {
+    assert_analyzer_or_sir(result, |e| match e.kind() {
+        SimulatorErrorKind::SIRParser(ParserError::Scheduler(SchedulerError::MultipleDriver {
             ..
         })) => {}
         _ => panic!("Expected MultipleDriver error, got: {e:?}"),
@@ -312,11 +312,11 @@ fn detect_hierarchical_true_concat_feedback_loop() {
         "Expected combinational loop to be rejected across hierarchy"
     );
 
-    match result {
-        Err(SimulatorError::SIRParser(ParserError::Scheduler(
+    match result.as_ref().map_err(|e| e.kind()) {
+        Err(SimulatorErrorKind::SIRParser(ParserError::Scheduler(
             SchedulerError::CombinationalLoop { .. },
         ))) => {}
-        Err(e) => panic!("expected CombinationalLoop error, got {e:?}"),
+        Err(k) => panic!("expected CombinationalLoop error, got {k:?}"),
         Ok(_) => panic!("expected CombinationalLoop error, got Ok"),
     }
 }
@@ -422,15 +422,15 @@ fn test_sv_module_instance_returns_unsupported_parser_error() {
 
     let result = Simulator::builder(code, "Top").build();
 
-    match result {
-        Err(SimulatorError::SIRParser(ParserError::Unsupported {
+    match result.as_ref().map_err(|e| e.kind()) {
+        Err(SimulatorErrorKind::SIRParser(ParserError::Unsupported {
             phase: LoweringPhase::SimulatorParser,
             feature,
             ..
         })) => {
-            assert_eq!(feature, "systemverilog module instantiation")
+            assert_eq!(*feature, "systemverilog module instantiation")
         }
-        Err(e) => panic!("expected Unsupported(SimulatorParser) for $sv module, got {e:?}"),
+        Err(k) => panic!("expected Unsupported(SimulatorParser) for $sv module, got {k:?}"),
         Ok(_) => panic!("expected Unsupported(SimulatorParser) for $sv module, got Ok"),
     }
 }
@@ -445,11 +445,11 @@ fn test_top_not_found_returns_error() {
 
     let result = Simulator::builder(code, "NonExistentTop").build();
 
-    match result {
-        Err(SimulatorError::SIRParser(ParserError::TopNotFound { name })) => {
+    match result.as_ref().map_err(|e| e.kind()) {
+        Err(SimulatorErrorKind::SIRParser(ParserError::TopNotFound { name })) => {
             assert_eq!(name, "NonExistentTop");
         }
-        Err(e) => panic!("expected TopNotFound, got {e:?}"),
+        Err(k) => panic!("expected TopNotFound, got {k:?}"),
         Ok(_) => panic!("expected TopNotFound, got Ok"),
     }
 }
@@ -467,11 +467,11 @@ fn test_generic_top_returns_error() {
 
     let result = Simulator::builder(code, "GenericPass").build();
 
-    match result {
-        Err(SimulatorError::SIRParser(ParserError::GenericTop { name })) => {
+    match result.as_ref().map_err(|e| e.kind()) {
+        Err(SimulatorErrorKind::SIRParser(ParserError::GenericTop { name })) => {
             assert_eq!(name, "GenericPass");
         }
-        Err(e) => panic!("expected GenericTop, got {e:?}"),
+        Err(k) => panic!("expected GenericTop, got {k:?}"),
         Ok(_) => panic!("expected GenericTop, got Ok"),
     }
 }

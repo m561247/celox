@@ -870,6 +870,28 @@ impl NativeSimulationHandle {
     }
 }
 
+/// Format analyzer errors with accumulated warnings for gen_ts error messages.
+fn format_errors_with_warnings(
+    pass_label: &str,
+    errors: &[&veryl_analyzer::AnalyzerError],
+    warnings: &[veryl_analyzer::AnalyzerError],
+) -> String {
+    let error_msgs: Vec<String> = errors
+        .iter()
+        .map(|e| celox::render_diagnostic(*e))
+        .collect();
+    let mut msg = format!("Errors in {pass_label}: {}", error_msgs.join("; "));
+    if !warnings.is_empty() {
+        let warning_msgs: Vec<String> = warnings
+            .iter()
+            .map(|w| celox::render_diagnostic(w))
+            .collect();
+        msg.push_str("\n\n--- warnings ---\n\n");
+        msg.push_str(&warning_msgs.join("\n"));
+    }
+    msg
+}
+
 /// Generate TypeScript type information as JSON for a Veryl project.
 ///
 /// Equivalent to running `celox-gen-ts --json` from the given project directory.
@@ -932,13 +954,10 @@ pub fn gen_ts(project_path: String) -> Result<String> {
         let results = analyzer.analyze_pass1(&path.prj, &parser.veryl);
         let real_errors: Vec<_> = results.iter().filter(|e| e.is_error()).collect();
         if !real_errors.is_empty() {
-            let msgs: Vec<String> = real_errors
-                .iter()
-                .map(|e| celox::render_diagnostic(*e))
-                .collect();
-            return Err(Error::from_reason(format!(
-                "Errors in analysis pass 1: {}",
-                msgs.join("; ")
+            return Err(Error::from_reason(format_errors_with_warnings(
+                "analysis pass 1",
+                &real_errors,
+                &all_warnings,
             )));
         }
         all_warnings.extend(results.into_iter().filter(|e| !e.is_error()));
@@ -949,13 +968,10 @@ pub fn gen_ts(project_path: String) -> Result<String> {
     let results = Analyzer::analyze_post_pass1();
     let real_errors: Vec<_> = results.iter().filter(|e| e.is_error()).collect();
     if !real_errors.is_empty() {
-        let msgs: Vec<String> = real_errors
-            .iter()
-            .map(|e| celox::render_diagnostic(*e))
-            .collect();
-        return Err(Error::from_reason(format!(
-            "Errors in post-pass 1 analysis: {}",
-            msgs.join("; ")
+        return Err(Error::from_reason(format_errors_with_warnings(
+            "post-pass 1 analysis",
+            &real_errors,
+            &all_warnings,
         )));
     }
     all_warnings.extend(results.into_iter().filter(|e| !e.is_error()));
@@ -995,13 +1011,10 @@ pub fn gen_ts(project_path: String) -> Result<String> {
         );
         let real_errors: Vec<_> = results.iter().filter(|e| e.is_error()).collect();
         if !real_errors.is_empty() {
-            let msgs: Vec<String> = real_errors
-                .iter()
-                .map(|e| celox::render_diagnostic(*e))
-                .collect();
-            return Err(Error::from_reason(format!(
-                "Errors in analysis pass 2: {}",
-                msgs.join("; ")
+            return Err(Error::from_reason(format_errors_with_warnings(
+                "analysis pass 2",
+                &real_errors,
+                &all_warnings,
             )));
         }
         all_warnings.extend(results.into_iter().filter(|e| !e.is_error()));
@@ -1030,13 +1043,10 @@ pub fn gen_ts(project_path: String) -> Result<String> {
     let results = Analyzer::analyze_post_pass2();
     let real_errors: Vec<_> = results.iter().filter(|e| e.is_error()).collect();
     if !real_errors.is_empty() {
-        let msgs: Vec<String> = real_errors
-            .iter()
-            .map(|e| celox::render_diagnostic(*e))
-            .collect();
-        return Err(Error::from_reason(format!(
-            "Errors in post-pass 2 analysis: {}",
-            msgs.join("; ")
+        return Err(Error::from_reason(format_errors_with_warnings(
+            "post-pass 2 analysis",
+            &real_errors,
+            &all_warnings,
         )));
     }
     all_warnings.extend(results.into_iter().filter(|e| !e.is_error()));

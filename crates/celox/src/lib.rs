@@ -45,6 +45,7 @@ pub use simulator::DeadStorePolicy;
 pub use simulator::Simulator;
 pub use simulator::SimulatorBuilder;
 pub use simulator::SimulatorError;
+pub use simulator::SimulatorErrorKind;
 pub use simulator::SimulatorOptions;
 pub use simulator::render_diagnostic;
 pub use simulator::{InstanceHierarchy, NamedEvent, NamedSignal};

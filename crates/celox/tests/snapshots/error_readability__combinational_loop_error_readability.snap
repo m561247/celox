@@ -5,3 +5,18 @@ expression: err
 scheduler
 
   × Combinational loop detected: y[0]
+
+
+--- warnings ---
+
+unassign_variable (https://doc.veryl-lang.org/book/07_appendix/02_semantic_error.html#unassign_variable)
+
+  ⚠ "y" is unassigned
+   ╭─[:6:20]
+ 5 │         ) {
+ 6 │             assign y = ~y & a;
+   ·                    ┬
+   ·                    ╰── Error location
+ 7 │         }
+   ╰────
+  help:

@@ -1,7 +1,7 @@
 use malachite_bigint::BigUint;
 
 use crate::{
-    HashMap, SimulatorOptions,
+    HashMap, SimulatorError, SimulatorOptions,
     ir::{AbsoluteAddr, SignalRef},
 };
 
@@ -68,7 +68,7 @@ impl JitBackend {
         mut trace: Option<&mut crate::debug::CompilationTrace>,
     ) -> Result<Self, crate::SimulatorError> {
         let layout = MemoryLayout::build(sir, options);
-        let mut engine = JitEngine::new(layout, options).map_err(crate::SimulatorError::Codegen)?;
+        let mut engine = JitEngine::new(layout, options).map_err(SimulatorError::from)?;
 
         let mut pre_clif_buf = String::new();
         let mut post_clif_buf = String::new();
@@ -129,7 +129,7 @@ impl JitBackend {
             }
         }
 
-        let comb_code_ptr = res.map_err(crate::SimulatorError::Codegen)?;
+        let comb_code_ptr = res.map_err(SimulatorError::from)?;
 
         let mut next_id = 0;
         let mut addr_to_id = HashMap::default();
@@ -196,7 +196,7 @@ impl JitBackend {
                     }
                 }
 
-                let ptr = res.map_err(crate::SimulatorError::Codegen)?;
+                let ptr = res.map_err(SimulatorError::from)?;
                 let func: SimFunc = unsafe { std::mem::transmute(ptr) };
                 ff_funcs.push(func);
                 event_map.insert(
