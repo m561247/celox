@@ -58,10 +58,12 @@ impl VcdWriter {
                     })
                     .collect::<Vec<_>>()
                     .join(".");
-                instance_signals
-                    .entry(*instance_id)
-                    .or_default()
-                    .push((name, addr, info.width, info.is_4state));
+                instance_signals.entry(*instance_id).or_default().push((
+                    name,
+                    addr,
+                    info.width,
+                    info.is_4state,
+                ));
             }
         }
 
@@ -144,15 +146,9 @@ impl VcdWriter {
                 } else if width == 1 {
                     writeln!(self.writer, "{}{}", current_val, vcd_id)?;
                 } else {
-                    writeln!(
-                        self.writer,
-                        "b{} {}",
-                        current_val.to_str_radix(2),
-                        vcd_id
-                    )?;
+                    writeln!(self.writer, "b{} {}", current_val.to_str_radix(2), vcd_id)?;
                 }
-                self.last_values
-                    .insert(*addr, (current_val, current_mask));
+                self.last_values.insert(*addr, (current_val, current_mask));
             }
         }
         self.writer.flush()?;
