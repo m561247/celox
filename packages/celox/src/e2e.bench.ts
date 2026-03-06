@@ -13,10 +13,16 @@ import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, bench, describe } from "vitest";
-import { createSimulatorBridge, loadNativeAddon } from "./napi-helpers.js";
+import {
+	clearJitCache,
+	createSimulatorBridge,
+	loadNativeAddon,
+} from "./napi-helpers.js";
 import { Simulation } from "./simulation.js";
 import { Simulator } from "./simulator.js";
 import type { ModuleDefinition } from "./types.js";
+
+const addon = loadNativeAddon();
 
 const __benchDir = dirname(fileURLToPath(import.meta.url));
 const VERYL_STD = resolve(
@@ -56,6 +62,7 @@ describe("simulation", () => {
 	bench(
 		"simulation_build_top_n1000",
 		() => {
+			clearJitCache(addon);
 			const sim = Simulator.fromSource<TopPorts>(CODE, "Top");
 			sim.dispose();
 		},
@@ -64,10 +71,10 @@ describe("simulation", () => {
 
 	const sim = Simulator.fromSource<TopPorts>(CODE, "Top");
 
-	// Reset sequence
-	sim.dut.rst = 1n;
-	sim.tick();
+	// Reset sequence (AsyncLow: active at 0, inactive at 1)
 	sim.dut.rst = 0n;
+	sim.tick();
+	sim.dut.rst = 1n;
 	sim.tick();
 
 	afterAll(() => {
@@ -90,7 +97,7 @@ describe("simulation", () => {
 
 	// Testbench pattern: write input + tick + read back
 	bench("testbench_tick_top_n1000_x1", () => {
-		sim.dut.rst = 0n;
+		sim.dut.rst = 1n;
 		sim.tick();
 		//read to measure full testbench cycle
 		sim.dut.rst;
@@ -100,7 +107,7 @@ describe("simulation", () => {
 		"testbench_tick_top_n1000_x1000000",
 		() => {
 			for (let i = 0; i < 1_000_000; i++) {
-				sim.dut.rst = 0n;
+				sim.dut.rst = 1n;
 				sim.tick();
 				//read to measure full testbench cycle
 				sim.dut.rst;
@@ -110,7 +117,6 @@ describe("simulation", () => {
 	);
 
 	// Array access via .at() — use ModuleDefinition with arrayDims
-	const addon = loadNativeAddon();
 	const TopModule: ModuleDefinition<TopPorts> = {
 		__celox_module: true,
 		name: "Top",
@@ -125,9 +131,9 @@ describe("simulation", () => {
 	const simArr = Simulator.create<TopPorts>(TopModule, {
 		__nativeCreate: createSimulatorBridge(addon),
 	});
-	simArr.dut.rst = 1n;
-	simArr.tick();
 	simArr.dut.rst = 0n;
+	simArr.tick();
+	simArr.dut.rst = 1n;
 	simArr.tick();
 
 	afterAll(() => {
@@ -135,7 +141,7 @@ describe("simulation", () => {
 	});
 
 	bench("testbench_array_tick_top_n1000_x1", () => {
-		simArr.dut.rst = 0n;
+		simArr.dut.rst = 1n;
 		simArr.tick();
 		//read array element to measure .at() overhead
 		simArr.dut.cnt.at(0);
@@ -145,7 +151,7 @@ describe("simulation", () => {
 		"testbench_array_tick_top_n1000_x1000000",
 		() => {
 			for (let i = 0; i < 1_000_000; i++) {
-				simArr.dut.rst = 0n;
+				simArr.dut.rst = 1n;
 				simArr.tick();
 				//read array element to measure .at() overhead
 				simArr.dut.cnt.at(0);
@@ -164,9 +170,9 @@ describe("simulation", () => {
 describe("overhead", () => {
 	// Simulator.tick — same as Rust simulator_tick_x10000
 	const simTick = Simulator.fromSource<TopPorts>(CODE, "Top");
-	simTick.dut.rst = 1n;
-	simTick.tick();
 	simTick.dut.rst = 0n;
+	simTick.tick();
+	simTick.dut.rst = 1n;
 	simTick.tick();
 
 	afterAll(() => {
@@ -211,6 +217,7 @@ describe("simulation-time-based", () => {
 	bench(
 		"simulation_time_build_top_n1000",
 		() => {
+			clearJitCache(addon);
 			const sim = Simulation.fromSource<TopPorts>(CODE, "Top");
 			sim.dispose();
 		},
@@ -287,9 +294,9 @@ describe("testbench-helpers", () => {
 	// waitForCycles benchmark
 	const simWait = Simulation.fromSource<CounterPorts>(COUNTER_CODE, "Counter");
 	simWait.addClock("clk", { period: 10 });
-	simWait.dut.rst = 1n;
-	simWait.runUntil(20);
 	simWait.dut.rst = 0n;
+	simWait.runUntil(20);
+	simWait.dut.rst = 1n;
 	simWait.dut.en = 1n;
 
 	afterAll(() => {
@@ -317,9 +324,9 @@ describe("testbench-helpers", () => {
 	// runUntil: fast Rust path vs guarded TS path
 	const simRun = Simulation.fromSource<CounterPorts>(COUNTER_CODE, "Counter");
 	simRun.addClock("clk", { period: 10 });
-	simRun.dut.rst = 1n;
-	simRun.runUntil(20);
 	simRun.dut.rst = 0n;
+	simRun.runUntil(20);
+	simRun.dut.rst = 1n;
 	simRun.dut.en = 1n;
 
 	afterAll(() => {
@@ -354,6 +361,7 @@ describe("optimize-flag", () => {
 	bench(
 		"build_without_optimize",
 		() => {
+			clearJitCache(addon);
 			const sim = Simulator.fromSource<TopPorts>(CODE, "Top");
 			sim.dispose();
 		},
@@ -363,6 +371,7 @@ describe("optimize-flag", () => {
 	bench(
 		"build_with_optimize",
 		() => {
+			clearJitCache(addon);
 			const sim = Simulator.fromSource<TopPorts>(CODE, "Top", {
 				optimize: true,
 			});
@@ -372,17 +381,17 @@ describe("optimize-flag", () => {
 	);
 
 	const simNoOpt = Simulator.fromSource<TopPorts>(CODE, "Top");
-	simNoOpt.dut.rst = 1n;
-	simNoOpt.tick();
 	simNoOpt.dut.rst = 0n;
+	simNoOpt.tick();
+	simNoOpt.dut.rst = 1n;
 	simNoOpt.tick();
 
 	const simOpt = Simulator.fromSource<TopPorts>(CODE, "Top", {
 		optimize: true,
 	});
-	simOpt.dut.rst = 1n;
-	simOpt.tick();
 	simOpt.dut.rst = 0n;
+	simOpt.tick();
+	simOpt.dut.rst = 1n;
 	simOpt.tick();
 
 	afterAll(() => {
@@ -451,6 +460,7 @@ describe("stdlib-linear-sec", () => {
 	bench(
 		"simulation_build_linear_sec_p6",
 		() => {
+			clearJitCache(addon);
 			const sim = Simulator.fromSource<LinearSecPorts>(LINEAR_SEC_SRC, "Top");
 			sim.dispose();
 		},
@@ -519,6 +529,7 @@ describe("stdlib-countones", () => {
 	bench(
 		"simulation_build_countones_w64",
 		() => {
+			clearJitCache(addon);
 			const sim = Simulator.fromSource<CountonesPorts>(COUNTONES_SRC, "Top");
 			sim.dispose();
 		},
@@ -588,6 +599,7 @@ describe("stdlib-counter", () => {
 	bench(
 		"simulation_build_std_counter_w32",
 		() => {
+			clearJitCache(addon);
 			const sim = Simulator.fromSource<StdCounterPorts>(STD_COUNTER_SRC, "Top");
 			sim.dispose();
 		},
@@ -595,10 +607,10 @@ describe("stdlib-counter", () => {
 	);
 
 	const sim = Simulator.fromSource<StdCounterPorts>(STD_COUNTER_SRC, "Top");
-	sim.dut.rst = 1n;
+	sim.dut.rst = 0n;
 	sim.dut.i_up = 0n;
 	sim.tick();
-	sim.dut.rst = 0n;
+	sim.dut.rst = 1n;
 	sim.dut.i_up = 1n;
 	sim.tick();
 
@@ -671,6 +683,7 @@ describe("stdlib-gray-counter", () => {
 	bench(
 		"simulation_build_gray_counter_w32",
 		() => {
+			clearJitCache(addon);
 			const sim = Simulator.fromSource<GrayCounterPorts>(
 				GRAY_COUNTER_SRC,
 				"Top",
@@ -681,10 +694,10 @@ describe("stdlib-gray-counter", () => {
 	);
 
 	const sim = Simulator.fromSource<GrayCounterPorts>(GRAY_COUNTER_SRC, "Top");
-	sim.dut.rst = 1n;
+	sim.dut.rst = 0n;
 	sim.dut.i_up = 0n;
 	sim.tick();
-	sim.dut.rst = 0n;
+	sim.dut.rst = 1n;
 	sim.dut.i_up = 1n;
 	sim.tick();
 
