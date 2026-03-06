@@ -380,6 +380,9 @@ fn coalesce_static_stores<A: Clone + std::fmt::Debug + PartialEq + Ord + std::ha
                         segment.iter().flat_map(|s| s.triggers.clone()).collect();
 
                     *next_id += 1;
+                    while register_map.contains_key(&RegisterId(*next_id)) {
+                        *next_id += 1;
+                    }
                     let new_reg_id = RegisterId(*next_id);
                     register_map.insert(new_reg_id, RegisterType::Logic { width: total_width });
 

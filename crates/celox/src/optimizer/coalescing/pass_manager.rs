@@ -1,7 +1,6 @@
 use crate::ir::{ExecutionUnit, RegionedAbsoluteAddr};
 use crate::optimizer::PassOptions;
 
-#[allow(dead_code)]
 pub(super) trait ExecutionUnitPass {
     fn name(&self) -> &'static str;
     fn run(&self, eu: &mut ExecutionUnit<RegionedAbsoluteAddr>, options: &PassOptions);

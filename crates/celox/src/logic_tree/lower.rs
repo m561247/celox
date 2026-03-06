@@ -3,14 +3,11 @@ use crate::logic_tree::{NodeId, SLTNode, SLTNodeArena};
 use malachite_bigint::BigUint;
 use std::hash::Hash;
 
-pub struct SLTToSIRLowerer {
-    #[allow(dead_code)]
-    pub four_state: bool,
-}
+pub struct SLTToSIRLowerer;
 
 impl SLTToSIRLowerer {
-    pub fn new(four_state: bool) -> Self {
-        Self { four_state }
+    pub fn new(_four_state: bool) -> Self {
+        Self
     }
 
     /// Recursively expand SLT nodes into SIR instructions

@@ -145,7 +145,10 @@ impl<Addr> SIRBuilder<Addr> {
         let blocks = std::mem::take(&mut self.blocks);
         let regs = std::mem::take(&mut self.registers);
 
-        // Reset for a new EU — register and block IDs are EU-scoped
+        // Reset for a new EU — register and block IDs are EU-scoped.
+        // INVARIANT: callers must clear any external caches keyed by
+        // RegisterId (e.g. scheduler's lower_cache) after flush, since
+        // the new EU reuses IDs starting from 0.
         self.next_block_id = 0;
         self.next_reg_id = 0;
 

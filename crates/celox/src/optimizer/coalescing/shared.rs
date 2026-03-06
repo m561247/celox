@@ -325,7 +325,7 @@ pub(super) fn hoist_common_branch_loads(eu: &mut ExecutionUnit<RegionedAbsoluteA
     }
 }
 
-fn batch_replace_in_inst(
+pub(super) fn batch_replace_in_inst(
     inst: &mut SIRInstruction<RegionedAbsoluteAddr>,
     map: &HashMap<RegisterId, RegisterId>,
 ) {
@@ -379,7 +379,7 @@ fn batch_replace_in_inst(
     }
 }
 
-fn batch_replace_in_terminator(
+pub(super) fn batch_replace_in_terminator(
     term: &mut SIRTerminator,
     map: &HashMap<RegisterId, RegisterId>,
 ) {

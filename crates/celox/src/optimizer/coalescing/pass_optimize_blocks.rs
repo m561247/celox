@@ -1,98 +1,10 @@
 use super::block_opt::optimize_block;
+use super::shared::{batch_replace_in_inst, batch_replace_in_terminator};
 use crate::HashMap;
 use crate::ir::*;
 use crate::optimizer::PassOptions;
 
 use super::pass_manager::ExecutionUnitPass;
-
-fn batch_replace_in_inst(
-    inst: &mut SIRInstruction<RegionedAbsoluteAddr>,
-    map: &HashMap<RegisterId, RegisterId>,
-) {
-    match inst {
-        SIRInstruction::Imm(_, _) => {}
-        SIRInstruction::Binary(_, lhs, _, rhs) => {
-            if let Some(&to) = map.get(lhs) {
-                *lhs = to;
-            }
-            if let Some(&to) = map.get(rhs) {
-                *rhs = to;
-            }
-        }
-        SIRInstruction::Unary(_, _, src) => {
-            if let Some(&to) = map.get(src) {
-                *src = to;
-            }
-        }
-        SIRInstruction::Load(_, _, SIROffset::Dynamic(off), _) => {
-            if let Some(&to) = map.get(off) {
-                *off = to;
-            }
-        }
-        SIRInstruction::Load(_, _, SIROffset::Static(_), _) => {}
-        SIRInstruction::Store(_, SIROffset::Dynamic(off), _, src, _) => {
-            if let Some(&to) = map.get(off) {
-                *off = to;
-            }
-            if let Some(&to) = map.get(src) {
-                *src = to;
-            }
-        }
-        SIRInstruction::Store(_, SIROffset::Static(_), _, src, _) => {
-            if let Some(&to) = map.get(src) {
-                *src = to;
-            }
-        }
-        SIRInstruction::Commit(_, _, SIROffset::Dynamic(off), _, _) => {
-            if let Some(&to) = map.get(off) {
-                *off = to;
-            }
-        }
-        SIRInstruction::Commit(_, _, SIROffset::Static(_), _, _) => {}
-        SIRInstruction::Concat(_, args) => {
-            for arg in args {
-                if let Some(&to) = map.get(arg) {
-                    *arg = to;
-                }
-            }
-        }
-    }
-}
-
-fn batch_replace_in_terminator(
-    term: &mut SIRTerminator,
-    map: &HashMap<RegisterId, RegisterId>,
-) {
-    match term {
-        SIRTerminator::Jump(_, args) => {
-            for arg in args {
-                if let Some(&to) = map.get(arg) {
-                    *arg = to;
-                }
-            }
-        }
-        SIRTerminator::Branch {
-            cond,
-            true_block,
-            false_block,
-        } => {
-            if let Some(&to) = map.get(cond) {
-                *cond = to;
-            }
-            for arg in &mut true_block.1 {
-                if let Some(&to) = map.get(arg) {
-                    *arg = to;
-                }
-            }
-            for arg in &mut false_block.1 {
-                if let Some(&to) = map.get(arg) {
-                    *arg = to;
-                }
-            }
-        }
-        SIRTerminator::Return | SIRTerminator::Error(_) => {}
-    }
-}
 
 pub(super) struct OptimizeBlocksPass;
 
