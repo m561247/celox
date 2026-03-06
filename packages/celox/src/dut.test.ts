@@ -437,9 +437,9 @@ describe("createDut — 4-state", () => {
 		const dut = createDut<{ a: bigint }>(buffer, layout, ports, handle, state);
 
 		(dut as any).a = X;
-		// Value should be 0, mask should be 0xFF
+		// X = (v=1, m=1) per bit: value should be 0xFF, mask should be 0xFF
 		const [value, mask] = readFourState(buffer, layout.a);
-		expect(value).toBe(0n);
+		expect(value).toBe(0xffn);
 		expect(mask).toBe(0xffn);
 	});
 
@@ -831,9 +831,9 @@ describe("createDut — array ports", () => {
 
 		const view = new DataView(buffer);
 
-		// Assign X to element 3: value bit 3 → 0, mask bit 3 → 1
+		// Assign X to element 3: X = (v=1, m=1), so value bit 3 → 1, mask bit 3 → 1
 		dut.bits.set(3, X);
-		expect(view.getUint8(0) & 0b00001000).toBe(0); // value: bit 3 = 0
+		expect(view.getUint8(0) & 0b00001000).toBe(0b00001000); // value: bit 3 = 1
 		expect(view.getUint8(1) & 0b00001000).toBe(0b00001000); // mask:  bit 3 = 1
 
 		// Write a defined 1 to element 3: value bit 3 → 1, mask bit 3 → 0
@@ -882,9 +882,9 @@ describe("createDut — array ports", () => {
 
 		const view = new DataView(buffer);
 
-		// Assign X to element 0 (bitStart=0, no cross-byte): value bits 0-2 = 0, mask bits 0-2 = 0b111
+		// Assign X to element 0 (bitStart=0, no cross-byte): X = (v=1, m=1), value bits 0-2 = 0b111, mask bits 0-2 = 0b111
 		dut.data.set(0, X);
-		expect(view.getUint8(0) & 0b111).toBe(0); // value byte 0: bits 0-2 cleared
+		expect(view.getUint8(0) & 0b111).toBe(0b111); // value byte 0: bits 0-2 set (X encoding)
 		expect(view.getUint8(2) & 0b111).toBe(0b111); // mask byte 2: bits 0-2 set
 		expect(view.getUint8(1)).toBe(0); // value byte 1: untouched
 		expect(view.getUint8(3)).toBe(0); // mask byte 3: untouched

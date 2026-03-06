@@ -10,6 +10,7 @@ use veryl_emitter::Emitter;
 use veryl_metadata::Metadata;
 use veryl_parser::Parser;
 
+#[allow(clippy::needless_borrow)]
 fn emit_sv(code: &str) -> String {
     symbol_table::clear();
     attribute_table::clear();
