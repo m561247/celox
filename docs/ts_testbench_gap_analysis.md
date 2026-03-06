@@ -95,7 +95,7 @@ const t = sim.waitForCycles("clk", 10);
 
 #### ~~3.5 パラメータオーバーライド~~ [実装済み]
 
-数値パラメータ (`param WIDTH: u32 = 8`) は `SimulatorOptions.parameters` でランタイム override 可能。型パラメータ (`type T = logic<8>`) はランタイム override 非対応（信号構造が変わり DUT レイアウト・TS 型と矛盾するため）。型パラメータの変更が必要な場合はラッパーモジュールを `celox.toml` の `[test] sources` に配置する。詳細は [Parameter Overrides](../guide/parameter-overrides.md) を参照。
+数値パラメータ (`param WIDTH: u32 = 8`) は `SimulatorOptions.parameters` でランタイム override 可能。型パラメータ (`type T = logic<8>`) はランタイム override 非対応（信号構造が変わり DUT レイアウト・TS 型と矛盾するため）。型パラメータの変更が必要な場合はラッパーモジュールを `celox.toml` の `[test] sources` に配置する。詳細は [Parameter Overrides](./guide/parameter-overrides.md) を参照。
 
 #### ~~3.6 リセットヘルパー~~ [実装済み]
 
