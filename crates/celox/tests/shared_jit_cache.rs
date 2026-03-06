@@ -142,3 +142,110 @@ fn shared_code_layout_consistency() {
     let (_, new_total) = backend.memory_as_ptr();
     assert_eq!(new_total, original_total);
 }
+
+/// Concurrent threads sharing one SharedJitCode produce correct, independent results.
+#[test]
+fn shared_code_concurrent_comb() {
+    let sim = Simulator::builder(ADDER, "Top").build().unwrap();
+    let shared = sim.shared_code();
+    let a = sim.signal("a");
+    let b = sim.signal("b");
+    let sum = sim.signal("sum");
+
+    let threads: Vec<_> = (0..8)
+        .map(|i| {
+            let shared = Arc::clone(&shared);
+            std::thread::spawn(move || {
+                let mut backend = JitBackend::from_shared(shared);
+                let va = (i * 10) as u8;
+                let vb = (i * 3) as u8;
+                backend.set(a, va);
+                backend.set(b, vb);
+                backend.eval_comb().unwrap();
+                let result: u8 = backend.get_as(sum);
+                assert_eq!(result, va.wrapping_add(vb), "thread {i}");
+            })
+        })
+        .collect();
+
+    for t in threads {
+        t.join().unwrap();
+    }
+}
+
+/// Concurrent threads running sequential (FF) logic on shared code.
+#[test]
+fn shared_code_concurrent_ff() {
+    let sim = Simulator::builder(FF, "Top").build().unwrap();
+    let shared = sim.shared_code();
+    let d = sim.signal("d");
+    let q = sim.signal("q");
+    let rst = sim.signal("i_rst");
+    let clk_event = sim.event("i_clk");
+
+    let threads: Vec<_> = (0..8)
+        .map(|i| {
+            let shared = Arc::clone(&shared);
+            std::thread::spawn(move || {
+                let mut backend = JitBackend::from_shared(shared);
+                // Reset (AsyncLow: active at 0)
+                backend.set(rst, 0u8);
+                backend.eval_comb().unwrap();
+                backend.eval_apply_ff_at(clk_event).unwrap();
+                backend.eval_comb().unwrap();
+                assert_eq!(backend.get_as::<u8>(q), 0, "thread {i} after reset");
+                // Deactivate reset, drive data
+                backend.set(rst, 1u8);
+                let val = (i * 17 + 3) as u8;
+                backend.set(d, val);
+                backend.eval_comb().unwrap();
+                backend.eval_apply_ff_at(clk_event).unwrap();
+                backend.eval_comb().unwrap();
+                assert_eq!(backend.get_as::<u8>(q), val, "thread {i} after tick");
+            })
+        })
+        .collect();
+
+    for t in threads {
+        t.join().unwrap();
+    }
+}
+
+/// Stress test: many threads repeatedly ticking shared FF code.
+#[test]
+fn shared_code_concurrent_stress() {
+    let sim = Simulator::builder(FF, "Top").build().unwrap();
+    let shared = sim.shared_code();
+    let d = sim.signal("d");
+    let q = sim.signal("q");
+    let rst = sim.signal("i_rst");
+    let clk_event = sim.event("i_clk");
+
+    let threads: Vec<_> = (0..4)
+        .map(|i| {
+            let shared = Arc::clone(&shared);
+            std::thread::spawn(move || {
+                let mut backend = JitBackend::from_shared(shared);
+                // Reset
+                backend.set(rst, 0u8);
+                backend.eval_comb().unwrap();
+                backend.eval_apply_ff_at(clk_event).unwrap();
+                backend.eval_comb().unwrap();
+                backend.set(rst, 1u8);
+                // Tick 100 times, each time setting d to a different value
+                for cycle in 0u8..100 {
+                    let val = cycle.wrapping_add(i as u8 * 50);
+                    backend.set(d, val);
+                    backend.eval_comb().unwrap();
+                    backend.eval_apply_ff_at(clk_event).unwrap();
+                    backend.eval_comb().unwrap();
+                    assert_eq!(backend.get_as::<u8>(q), val, "thread {i} cycle {cycle}");
+                }
+            })
+        })
+        .collect();
+
+    for t in threads {
+        t.join().unwrap();
+    }
+}
