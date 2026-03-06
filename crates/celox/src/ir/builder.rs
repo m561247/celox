@@ -118,4 +118,52 @@ impl<Addr> SIRBuilder<Addr> {
             .instructions
             .push(inst);
     }
+
+    /// Returns the total number of blocks currently in this builder.
+    pub fn block_count(&self) -> usize {
+        self.blocks.len()
+    }
+
+    /// Flush the current builder state into an ExecutionUnit and reset for
+    /// a new one.  The current block must be unsealed (it will be sealed
+    /// with `Return` automatically).  Returns `None` if the builder has
+    /// only one empty block.
+    pub fn flush_eu(&mut self) -> Option<crate::ir::ExecutionUnit<Addr>> {
+        // If only the initial block and it's empty, nothing to flush
+        if self.blocks.len() == 1 {
+            let block = self.blocks.values().next().unwrap();
+            if block.instructions.is_empty() && self.current_block_id.is_some() {
+                return None;
+            }
+        }
+
+        // Seal current block if open
+        if self.current_block_id.is_some() {
+            self.seal_block(SIRTerminator::Return);
+        }
+
+        let blocks = std::mem::take(&mut self.blocks);
+        let regs = std::mem::take(&mut self.registers);
+
+        // Reset for a new EU — register and block IDs are EU-scoped
+        self.next_block_id = 0;
+        self.next_reg_id = 0;
+
+        // Re-initialise with a fresh block 0
+        let new_block = BasicBlock {
+            id: BlockId(0),
+            instructions: vec![],
+            params: vec![],
+            terminator: SIRTerminator::Return,
+        };
+        self.blocks.insert(BlockId(0), new_block);
+        self.next_block_id = 1;
+        self.current_block_id = Some(BlockId(0));
+
+        Some(crate::ir::ExecutionUnit {
+            entry_block_id: BlockId(0),
+            blocks,
+            register_map: regs,
+        })
+    }
 }

@@ -1097,13 +1097,28 @@ pub fn parse(
     trace_opts: &crate::debug::TraceOptions,
     mut trace: Option<&mut crate::debug::CompilationTrace>,
 ) -> Result<Program, ParserError> {
-    let result = parse_ir(ir, config, top)?;
+    let phase_timing = std::env::var("CELOX_PHASE_TIMING").is_ok();
+
+    macro_rules! timed_phase {
+        ($label:expr, $body:expr) => {{
+            if phase_timing {
+                let start = std::time::Instant::now();
+                let result = $body;
+                eprintln!("[phase-timing] {}: {:?}", $label, start.elapsed());
+                result
+            } else {
+                $body
+            }
+        }};
+    }
+
+    let result = timed_phase!("parse_ir", parse_ir(ir, config, top))?;
     if let Some(t) = trace.as_deref_mut()
         && trace_opts.analyzer_ir
     {
         t.analyzer_ir = Some(ir.to_string());
     }
-    let mut program = flatten(
+    let mut program = timed_phase!("flatten", flatten(
         &result.root_id,
         &result.module_ir,
         result.modules,
@@ -1114,7 +1129,7 @@ pub fn parse(
         four_state,
         trace_opts,
         trace.as_deref_mut(),
-    )?;
+    ))?;
 
     if let Some(t) = trace.as_deref_mut()
         && trace_opts.pre_optimized_sir
@@ -1123,7 +1138,7 @@ pub fn parse(
     }
 
     if optimize {
-        crate::optimizer::optimize(&mut program, four_state);
+        timed_phase!("optimize", crate::optimizer::optimize(&mut program, four_state));
     } else {
         // Even without optimization, run tail-call splitting to avoid
         // exceeding Cranelift's 24-bit instruction index limit.

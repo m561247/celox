@@ -1,0 +1,243 @@
+// 2-slot skid buffer for valid/ready handshake.
+// Provides registered output with full throughput.
+// buffered = r_valid || b_valid (for pipe_empty detection).
+module SkidBuffer::<PKG: SorterItemProto> (
+    clk      : input  clock    ,
+    rst      : input  reset    ,
+    s_data   : input  PKG::Item,
+    s_valid  : input  logic    ,
+    s_ready  : output logic    ,
+    m_data   : output PKG::Item,
+    m_valid  : output logic    ,
+    m_ready  : input  logic    ,
+    buffered : output logic    ,
+) {
+    // Output register
+    var r_data : PKG::Item;
+    var r_valid: logic    ;
+    // Skid register
+    var b_data : PKG::Item;
+    var b_valid: logic    ;
+
+    // s_ready looks ahead: accept when b is free OR will be freed this cycle
+    assign s_ready  = !b_valid | m_ready | !r_valid;
+    assign m_data   = r_data;
+    assign m_valid  = r_valid;
+    assign buffered = r_valid | b_valid;
+
+    // Next-state
+    var r_data_next : PKG::Item;
+    var r_valid_next: logic    ;
+    var b_data_next : PKG::Item;
+    var b_valid_next: logic    ;
+
+    always_comb {
+        r_data_next  = r_data;
+        r_valid_next = r_valid;
+        b_data_next  = b_data;
+        b_valid_next = b_valid;
+
+        if m_ready || !r_valid {
+            // Output slot free: pull from skid or input
+            if b_valid {
+                r_data_next  = b_data;
+                r_valid_next = 1;
+                b_valid_next = 0;
+                // If input also valid, capture into skid
+                if s_valid {
+                    b_data_next  = s_data;
+                    b_valid_next = 1;
+                }
+            } else {
+                r_data_next  = s_data;
+                r_valid_next = s_valid;
+            }
+        } else {
+            // Output stalled: capture input into skid if room
+            if s_valid && !b_valid {
+                b_data_next  = s_data;
+                b_valid_next = 1;
+            }
+        }
+    }
+
+    always_ff (clk, rst) {
+        if_reset {
+            r_data  = 0;
+            r_valid = 0;
+            b_data  = 0;
+            b_valid = 0;
+        } else {
+            r_data  = r_data_next;
+            r_valid = r_valid_next;
+            b_data  = b_data_next;
+            b_valid = b_valid_next;
+        }
+    }
+}
+
+// Combinational 2:1 merge node.
+// Selects the smaller valid input. Generates per-input ready signals.
+module MergeNode::<PKG: SorterItemProto> (
+    l_data : input  PKG::Item,
+    l_valid: input  logic    ,
+    l_ready: output logic    ,
+    r_data : input  PKG::Item,
+    r_valid: input  logic    ,
+    r_ready: output logic    ,
+    o_data : output PKG::Item,
+    o_valid: output logic    ,
+    o_ready: input  logic    ,
+) {
+    var sel_r: logic;
+    var fire : logic;
+
+    assign sel_r = !l_valid | (r_valid & PKG::lt(r_data, l_data));
+    assign o_valid = l_valid | r_valid;
+    assign fire = o_valid & o_ready;
+
+    always_comb {
+        if sel_r {
+            o_data = r_data;
+        } else {
+            o_data = l_data;
+        }
+    }
+
+    assign l_ready = fire & !sel_r;
+    assign r_ready = fire & sel_r;
+}
+
+// Binary merger tree with skid buffers.
+// Produces sorted output stream from N valid/data leaf inputs.
+// pop_o[i] fires when leaf i's value is consumed.
+// pipe_empty is high when all internal skid buffers are empty.
+//
+// INTERVAL controls skid-buffer insertion:
+//   (lv+1) % INTERVAL == 0 || (lv+1) == DEPTH → SkidBuffer
+//   otherwise → combinational wire
+//
+// Latency = ceil(clog2(N) / INTERVAL) clock cycles.
+module MinReductionTree::<PKG: SorterItemProto> #(
+    param N       : u32 = 8,
+    param INTERVAL: u32 = 1,
+) (
+    clk       : input  clock        ,
+    rst       : input  reset        ,
+    ready_i   : input  logic        ,
+    valid_i   : input  logic     [N],
+    data_i    : input  PKG::Item [N],
+    valid_o   : output logic        ,
+    data_o    : output PKG::Item    ,
+    pop_o     : output logic     [N],
+    pipe_empty: output logic        ,
+) {
+    const DEPTH: u32 = $clog2(N);
+
+    // Total internal wires: each level halves the count.
+    // We use flat arrays for data/valid/ready at each connection point.
+    // Indexing: level lv has N>>lv entries starting at offset 2*(N-(N>>lv)).
+    // But for merger tree we need ready signals too.
+    const TOTAL: u32 = 2 * N - 1;
+
+    var nd     : PKG::Item [TOTAL];
+    var nv     : logic     [TOTAL];
+    var nr     : logic     [TOTAL];
+    var buf_occ: logic     [TOTAL]; // SkidBuffer buffered (r_valid | b_valid)
+
+    // Level 0: wire leaf inputs
+    for i in 0..N :g_in {
+        assign nd[i]      = data_i[i];
+        assign nv[i]      = valid_i[i];
+        assign buf_occ[i] = 0;
+        // pop_o = level-0 ready
+        assign pop_o[i] = nr[i];
+    }
+
+    // Build merger tree
+    for lv in 0..DEPTH :g_lv {
+        for j in 0..(N >> (lv + 1)) :g_node {
+            if ((lv + 1) % INTERVAL == 0) || ((lv + 1) == DEPTH) :g_buf {
+                // MergeNode + SkidBuffer
+                var mn_data : PKG::Item;
+                var mn_valid: logic    ;
+                var mn_ready: logic    ;
+
+                inst node: MergeNode::<PKG> (
+                    l_data : nd[2 * (N - (N >> lv)) + 2 * j]    ,
+                    l_valid: nv[2 * (N - (N >> lv)) + 2 * j]    ,
+                    l_ready: nr[2 * (N - (N >> lv)) + 2 * j]    ,
+                    r_data : nd[2 * (N - (N >> lv)) + 2 * j + 1],
+                    r_valid: nv[2 * (N - (N >> lv)) + 2 * j + 1],
+                    r_ready: nr[2 * (N - (N >> lv)) + 2 * j + 1],
+                    o_data : mn_data                             ,
+                    o_valid: mn_valid                             ,
+                    o_ready: mn_ready                             ,
+                );
+
+                inst skid: SkidBuffer::<PKG> (
+                    clk                                              ,
+                    rst                                              ,
+                    s_data  : mn_data                                ,
+                    s_valid : mn_valid                               ,
+                    s_ready : mn_ready                               ,
+                    m_data  : nd[2 * (N - (N >> (lv + 1))) + j]      ,
+                    m_valid : nv[2 * (N - (N >> (lv + 1))) + j]      ,
+                    m_ready : nr[2 * (N - (N >> (lv + 1))) + j]      ,
+                    buffered: buf_occ[2 * (N - (N >> (lv + 1))) + j] ,
+                );
+            } else :g_wire {
+                // Combinational wire (no buffer)
+                inst node: MergeNode::<PKG> (
+                    l_data : nd[2 * (N - (N >> lv)) + 2 * j]    ,
+                    l_valid: nv[2 * (N - (N >> lv)) + 2 * j]    ,
+                    l_ready: nr[2 * (N - (N >> lv)) + 2 * j]    ,
+                    r_data : nd[2 * (N - (N >> lv)) + 2 * j + 1],
+                    r_valid: nv[2 * (N - (N >> lv)) + 2 * j + 1],
+                    r_ready: nr[2 * (N - (N >> lv)) + 2 * j + 1],
+                    o_data : nd[2 * (N - (N >> (lv + 1))) + j]  ,
+                    o_valid: nv[2 * (N - (N >> (lv + 1))) + j]  ,
+                    o_ready: nr[2 * (N - (N >> (lv + 1))) + j]  ,
+                );
+                assign buf_occ[2 * (N - (N >> (lv + 1))) + j] = 0;
+            }
+        }
+    }
+
+    // Root output
+    assign data_o  = nd[TOTAL - 1];
+    assign valid_o = nv[TOTAL - 1];
+    assign nr[TOTAL - 1] = ready_i;
+
+    // pipe_empty: all skid buffers report no data (r_valid=0 AND b_valid=0)
+    var pe_any: logic;
+    always_comb {
+        pe_any = 0;
+        for i: u32 in 0..TOTAL {
+            pe_any = pe_any | buf_occ[i];
+        }
+    }
+    assign pipe_empty = !pe_any;
+}
+
+pub module MinReductionTreeU16 #(
+    param N       : u32 = 8,
+    param INTERVAL: u32 = 1,
+) (
+    clk       : input  clock        ,
+    rst       : input  reset        ,
+    ready_i   : input  logic        ,
+    valid_i   : input  logic     [N],
+    data_i    : input  logic<16> [N],
+    valid_o   : output logic        ,
+    data_o    : output logic<16>    ,
+    pop_o     : output logic     [N],
+    pipe_empty: output logic        ,
+) {
+    inst tree: MinReductionTree::<SorterItemPlain::<16>> #(
+        N       : N       ,
+        INTERVAL: INTERVAL,
+    ) (
+        clk, rst, ready_i, valid_i, data_i, valid_o, data_o, pop_o, pipe_empty,
+    );
+}

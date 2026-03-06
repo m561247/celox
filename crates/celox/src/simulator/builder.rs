@@ -408,6 +408,9 @@ impl<'a> SimulatorBuilder<'a, Simulator> {
 
     /// Compiles the Veryl source and constructs the core logic simulator.
     pub fn build(self) -> Result<Simulator, SimulatorError> {
+        let phase_timing = std::env::var("CELOX_PHASE_TIMING").is_ok();
+        let phase_start = phase_timing.then(std::time::Instant::now);
+
         let (mut program, warnings) = compile_to_sir(
             &self.sources,
             self.top,
@@ -422,6 +425,11 @@ impl<'a> SimulatorBuilder<'a, Simulator> {
             self.reset_type,
             &self.param_overrides,
         )?;
+
+        if phase_timing {
+            eprintln!("[phase-timing] compile_to_sir (total): {:?}", phase_start.unwrap().elapsed());
+        }
+
         if self.options.dead_store_policy != DeadStorePolicy::Off {
             run_dead_store_elimination(
                 &mut program,
@@ -429,7 +437,12 @@ impl<'a> SimulatorBuilder<'a, Simulator> {
                 self.options.dead_store_policy,
             );
         }
+
+        let jit_start = phase_timing.then(std::time::Instant::now);
         let backend = JitBackend::new(&program, &self.options, None)?;
+        if phase_timing {
+            eprintln!("[phase-timing] jit_backend: {:?}", jit_start.unwrap().elapsed());
+        }
 
         let mut sim = Simulator::with_backend_and_program(backend, program, warnings);
         if let Some(path) = self.vcd_path {

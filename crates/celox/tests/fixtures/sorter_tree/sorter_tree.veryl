@@ -1,0 +1,207 @@
+module SorterTree::<PKG: SorterItemProto> #(
+    param N            : u32 = 4        ,
+    param LEAF_DEPTH   : u32 = 4        ,
+    param OUT_DEPTH    : u32 = 16       ,
+    param TREE_INTERVAL: u32 = $clog2(N),
+) (
+    clk     : input  clock                   ,
+    rst     : input  reset                   ,
+    push    : input  logic    <N>            ,
+    d_in    : input  PKG::Item    [N]        ,
+    last    : input  logic                   ,
+    merge_en: input  logic                   ,
+    d_out   : output PKG::Item    [OUT_DEPTH],
+    done    : output logic                   ,
+) {
+    // Leaf signals
+    var leaf_val  : PKG::Item [N];
+    var leaf_empty: logic     [N];
+    var leaf_pop  : logic     [N];
+
+    // N LinearSorterPull leaves
+    for i in 0..N :g_leaf {
+        inst leaf: LinearSorterPull::<PKG> #(
+            DEPTH: LEAF_DEPTH,
+        ) (
+            clk                 ,
+            rst                 ,
+            push : push[i]      ,
+            pop  : leaf_pop[i]  ,
+            d_in : d_in[i]      ,
+            d_out: leaf_val[i]  ,
+            empty: leaf_empty[i],
+        );
+    }
+
+    // Tree valid input
+    var tree_valid_i: logic [N];
+
+    for i in 0..N :g_vi {
+        assign tree_valid_i[i] = !leaf_empty[i];
+    }
+
+    // MinReductionTree (merger tree with pop signals)
+    var tree_valid_o  : logic        ;
+    var tree_data_o   : PKG::Item    ;
+    var tree_pop      : logic     [N];
+    var tree_pipe_empty: logic       ;
+
+    inst min_tree: MinReductionTree::<PKG> #(
+        N       : N            ,
+        INTERVAL: TREE_INTERVAL,
+    ) (
+        clk                          ,
+        rst                          ,
+        ready_i   : merge_en         ,
+        valid_i   : tree_valid_i     ,
+        data_i    : leaf_val         ,
+        valid_o   : tree_valid_o     ,
+        data_o    : tree_data_o      ,
+        pop_o     : tree_pop         ,
+        pipe_empty: tree_pipe_empty  ,
+    );
+
+    // pop_o from merger tree directly drives leaf pop
+    assign leaf_pop = tree_pop;
+
+    // Output accumulator
+    inst out_sorter: LinearSorter::<PKG> #(
+        DEPTH: OUT_DEPTH,
+    ) (
+        clk                            ,
+        rst                            ,
+        en   : tree_valid_o && merge_en,
+        d_in : tree_data_o             ,
+        d_out                          ,
+    );
+
+    // Fire output: tree produces a result consumed by out_sorter
+    let fire_out: logic = tree_valid_o && merge_en;
+
+    // Pop count: number of leaves popped this cycle
+    const IF_W: u32 = $clog2(N * LEAF_DEPTH + 1);
+    var pop_cnt: logic<IF_W>;
+    always_comb {
+        pop_cnt = 0;
+        for i: u32 in 0..N {
+            if leaf_pop[i] {
+                pop_cnt = pop_cnt + 1;
+            }
+        }
+    }
+
+    // In-flight counter: items popped from leaves but not yet output from tree
+    var in_flight: logic<IF_W>;
+    always_ff (clk, rst) {
+        if_reset {
+            in_flight = 0;
+        } else {
+            in_flight = in_flight + pop_cnt - fire_out as IF_W;
+        }
+    }
+
+    // last_seen: latched when `last` input is asserted
+    var last_seen: logic;
+    always_ff (clk, rst) {
+        if_reset {
+            last_seen = 0;
+        } else {
+            if last {
+                last_seen = 1;
+            }
+        }
+    }
+
+    // Done conditions:
+    //   (A) Normal drain: no valid leaves AND in-flight == fire_out
+    //   (B) Early exit:   last_seen AND all leaf heads >= output tail
+    //                     AND pipeline drained (in_flight == fire_out)
+    // Note: d_out settles 1 cycle after done rises.
+
+    var valid_any: logic;
+    always_comb {
+        valid_any = 0;
+        for i: u32 in 0..N {
+            valid_any = valid_any || !leaf_empty[i];
+        }
+    }
+
+    // Early exit: all non-empty leaf heads >= output accumulator tail
+    let out_tail    : PKG::Item = d_out[OUT_DEPTH - 1];
+    var all_ge_tail : logic;
+    always_comb {
+        all_ge_tail = 1;
+        for i: u32 in 0..N {
+            if !leaf_empty[i] && PKG::lt(leaf_val[i], out_tail) {
+                all_ge_tail = 0;
+            }
+        }
+    }
+
+    let drained: logic = in_flight == (fire_out as IF_W);
+    assign done = drained && (!valid_any || (last_seen && all_ge_tail));
+}
+
+pub module SorterTreeDistEntry #(
+    param N            : u32 = 4        ,
+    param LEAF_DEPTH   : u32 = 4        ,
+    param OUT_DEPTH    : u32 = 16       ,
+    param TREE_INTERVAL: u32 = $clog2(N),
+) (
+    clk     : input  clock                ,
+    rst     : input  reset                ,
+    push    : input  logic<N>             ,
+    d_in    : input  logic<64> [N]        ,
+    last    : input  logic                ,
+    merge_en: input  logic                ,
+    d_out   : output logic<64> [OUT_DEPTH],
+    done    : output logic                ,
+) {
+    inst tree: SorterTree::<DistEntry::<>> #(
+        N            : N            ,
+        LEAF_DEPTH   : LEAF_DEPTH   ,
+        OUT_DEPTH    : OUT_DEPTH    ,
+        TREE_INTERVAL: TREE_INTERVAL,
+    ) (
+        clk       ,
+        rst       ,
+        push      ,
+        d_in      ,
+        last      ,
+        merge_en  ,
+        d_out     ,
+        done      ,
+    );
+}
+
+pub module SorterTreeU16 #(
+    param N            : u32 = 4        ,
+    param LEAF_DEPTH   : u32 = 4        ,
+    param OUT_DEPTH    : u32 = 16       ,
+    param TREE_INTERVAL: u32 = $clog2(N),
+) (
+    clk     : input  clock                ,
+    rst     : input  reset                ,
+    push    : input  logic<N>             ,
+    d_in    : input  logic<16> [N]        ,
+    last    : input  logic                ,
+    merge_en: input  logic                ,
+    d_out   : output logic<16> [OUT_DEPTH],
+    done    : output logic                ,
+) {
+    inst tree: SorterTree::<SorterItemPlain::<16>> #(
+        N            : N            ,
+        LEAF_DEPTH   : LEAF_DEPTH   ,
+        OUT_DEPTH    : OUT_DEPTH    ,
+        TREE_INTERVAL: TREE_INTERVAL,
+    ) (
+        clk       ,
+        rst       ,
+        push      ,
+        d_in      ,
+        last      ,
+        merge_en  ,
+        d_out     ,
+        done      ,
+    );
+}

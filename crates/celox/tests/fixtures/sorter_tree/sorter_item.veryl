@@ -1,0 +1,25 @@
+// Proto package: SorterTree が受け付けるアイテム型の抽象定義
+// 比較は lt(a, b) で行う。デフォルトは符号なし <: 演算子。
+// key-value ペアの場合は key を上位ビットに配置することで
+// 全体の <: 比較が key 優先の辞書順と等価になる。
+pub proto package SorterItemProto {
+    type Item;
+    function lt(a: input Item, b: input Item) -> logic;
+}
+
+// Concrete: 全bit比較（従来の logic<WIDTH> と同等）
+pub package SorterItemPlain::<WIDTH: u32 = 16> for SorterItemProto {
+    type Item = logic<WIDTH>;
+    function lt(a: input Item, b: input Item) -> logic {
+        return a <: b;
+    }
+}
+
+// Concrete: key-value ペア。上位KEY_Wbitがkey、下位VAL_WbitがPayload。
+// key を MSB 側に置くことで <: による全体比較が key 優先の辞書順と等価になる。
+pub package SorterItemKV::<KEY_W: u32 = 16, VAL_W: u32 = 16> for SorterItemProto {
+    type Item = logic<KEY_W + VAL_W>;
+    function lt(a: input Item, b: input Item) -> logic {
+        return a <: b;
+    }
+}

@@ -1,6 +1,7 @@
 use crate::ir::{ExecutionUnit, RegionedAbsoluteAddr};
 use crate::optimizer::PassOptions;
 
+#[allow(dead_code)]
 pub(super) trait ExecutionUnitPass {
     fn name(&self) -> &'static str;
     fn run(&self, eu: &mut ExecutionUnit<RegionedAbsoluteAddr>, options: &PassOptions);
@@ -24,9 +25,16 @@ impl ExecutionUnitPassManager {
     }
 
     pub(super) fn run(&self, eu: &mut ExecutionUnit<RegionedAbsoluteAddr>, options: &PassOptions) {
+        let timing = std::env::var("CELOX_PASS_TIMING").is_ok();
         for pass in &self.passes {
-            let _ = pass.name();
+            let start = timing.then(std::time::Instant::now);
             pass.run(eu, options);
+            if let Some(start) = start {
+                let elapsed = start.elapsed();
+                if elapsed.as_millis() > 0 {
+                    eprintln!("[pass-timing] {:>40}: {:?}", pass.name(), elapsed);
+                }
+            }
         }
     }
 }

@@ -1,0 +1,79 @@
+module SorterCell::<PKG: SorterItemProto> (
+    clk     : input  clock    ,
+    rst     : input  reset    ,
+    en      : input  logic    ,
+    d_in    : input  PKG::Item, // Broadcast input value
+    prev_val: input  PKG::Item, // Registered value from cell above
+    lt_prev : input  logic    , // d_in < cell[i-1].r_val
+    o_reg   : output PKG::Item, // Current stored value (registered)
+    lt      : output logic    , // d_in < r_val
+) {
+    var r_val: PKG::Item;
+
+    assign lt    = PKG::lt(d_in, r_val);
+    assign o_reg = r_val;
+
+    always_ff {
+        if_reset {
+            r_val = -1; // Initialize with Max Value
+        } else if en {
+            if lt && !lt_prev {
+                // Insertion point: d_in belongs here
+                r_val = d_in;
+            } else if lt {
+                // Shift down: take value from cell above
+                r_val = prev_val;
+            }
+        }
+    }
+}
+
+module LinearSorter::<PKG: SorterItemProto> #(
+    param DEPTH: u32 = 8,
+) (
+    clk  : input  clock            ,
+    rst  : input  reset            ,
+    en   : input  logic            ,
+    d_in : input  PKG::Item        ,
+    d_out: output PKG::Item [DEPTH],
+) {
+    var cell_lt : logic     [DEPTH + 1];
+    var cell_reg: PKG::Item [DEPTH + 1];
+
+    assign cell_lt[0]  = 0;
+    assign cell_reg[0] = 0;
+
+    for i in 0..DEPTH :g_cel {
+        inst s: SorterCell::<PKG> (
+            clk                      ,
+            rst                      ,
+            en                       ,
+            d_in                     ,
+            prev_val: cell_reg[i]    ,
+            lt_prev : cell_lt[i]     ,
+            o_reg   : cell_reg[i + 1],
+            lt      : cell_lt[i + 1] ,
+        );
+        assign d_out[i] = cell_reg[i + 1];
+    }
+}
+
+pub module LinearSorterU16 #(
+    param DEPTH: u32 = 8,
+) (
+    clk  : input  clock            ,
+    rst  : input  reset            ,
+    en   : input  logic            ,
+    d_in : input  logic<16>        ,
+    d_out: output logic<16> [DEPTH],
+) {
+    inst s: LinearSorter::<SorterItemPlain::<16>> #(
+        DEPTH: DEPTH,
+    ) (
+        clk    ,
+        rst    ,
+        en     ,
+        d_in   ,
+        d_out  ,
+    );
+}

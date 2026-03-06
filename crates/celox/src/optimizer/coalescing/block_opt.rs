@@ -73,6 +73,7 @@ fn schedule_block_interleaved<A: Clone + PartialEq>(
         return window.to_vec();
     }
 
+    // Build def-use information
     let mut defs: Vec<Option<RegisterId>> = Vec::with_capacity(n);
     let mut uses: Vec<Vec<RegisterId>> = Vec::with_capacity(n);
     for inst in window {
@@ -82,59 +83,85 @@ fn schedule_block_interleaved<A: Clone + PartialEq>(
         uses.push(u);
     }
 
+    // Build dependency graph using def-use chains: O(n * avg_uses) instead of O(n²)
+    let mut def_map: HashMap<RegisterId, usize> = HashMap::default();
     let mut succs: Vec<Vec<usize>> = vec![Vec::new(); n];
     let mut indeg = vec![0usize; n];
 
-    let add_edge = |from: usize, to: usize, succs: &mut Vec<Vec<usize>>, indeg: &mut Vec<usize>| {
-        if !succs[from].contains(&to) {
-            succs[from].push(to);
-            indeg[to] += 1;
-        }
-    };
-
-    for i in 0..n {
-        for j in (i + 1)..n {
-            let mut dep = false;
-
-            if let Some(d) = defs[i]
-                && uses[j].contains(&d)
-            {
-                dep = true;
+    let add_edge =
+        |from: usize, to: usize, succs: &mut Vec<Vec<usize>>, indeg: &mut Vec<usize>| {
+            if !succs[from].contains(&to) {
+                succs[from].push(to);
+                indeg[to] += 1;
             }
+        };
 
-            if let (Some(ai), Some(aj)) = (mem_access_info(&window[i]), mem_access_info(&window[j]))
-            {
-                let alias = may_alias((ai.0, ai.1, ai.2), (aj.0, aj.1, aj.2));
-                if alias {
-                    let i_write = ai.3;
-                    let j_write = aj.3;
-                    if i_write || j_write {
-                        dep = true;
+    // Track memory accesses for ordering
+    let mut mem_writes: Vec<usize> = Vec::new();
+    let mut mem_reads: Vec<usize> = Vec::new();
+
+    for j in 0..n {
+        // Data dependencies: for each register used by j, add edge from its def
+        for reg in &uses[j] {
+            if let Some(&def_idx) = def_map.get(reg) {
+                add_edge(def_idx, j, &mut succs, &mut indeg);
+            }
+        }
+        if let Some(d) = defs[j] {
+            def_map.insert(d, j);
+        }
+
+        // Memory dependencies
+        if let Some(info_j) = mem_access_info(&window[j]) {
+            let j_write = info_j.3;
+
+            if j_write {
+                // WAW: depend on previous writes that alias
+                for &prev in &mem_writes {
+                    if let Some(info_prev) = mem_access_info(&window[prev]) {
+                        if may_alias(
+                            (info_prev.0, info_prev.1, info_prev.2),
+                            (info_j.0, info_j.1, info_j.2),
+                        ) {
+                            add_edge(prev, j, &mut succs, &mut indeg);
+                        }
                     }
                 }
-            }
-
-            if dep {
-                add_edge(i, j, &mut succs, &mut indeg);
+                // WAR: depend on previous reads that alias
+                for &prev in &mem_reads {
+                    if let Some(info_prev) = mem_access_info(&window[prev]) {
+                        if may_alias(
+                            (info_prev.0, info_prev.1, info_prev.2),
+                            (info_j.0, info_j.1, info_j.2),
+                        ) {
+                            add_edge(prev, j, &mut succs, &mut indeg);
+                        }
+                    }
+                }
+                mem_writes.push(j);
+            } else {
+                // RAW: depend on previous writes that alias
+                for &prev in &mem_writes {
+                    if let Some(info_prev) = mem_access_info(&window[prev]) {
+                        if may_alias(
+                            (info_prev.0, info_prev.1, info_prev.2),
+                            (info_j.0, info_j.1, info_j.2),
+                        ) {
+                            add_edge(prev, j, &mut succs, &mut indeg);
+                        }
+                    }
+                }
+                mem_reads.push(j);
             }
         }
     }
 
+    // Scheduling loop with incremental ready set
     let mut out = Vec::with_capacity(n);
-    let mut scheduled = vec![false; n];
-    let mut scheduled_count = 0usize;
     let mut inflight_loads: HashSet<RegisterId> = HashSet::default();
+    let mut ready: Vec<usize> = (0..n).filter(|&i| indeg[i] == 0).collect();
 
-    while scheduled_count < n {
-        let mut ready: Vec<usize> = (0..n).filter(|&i| !scheduled[i] && indeg[i] == 0).collect();
-
-        if ready.is_empty() {
-            let k = (0..n).find(|&i| !scheduled[i]).unwrap();
-            ready.push(k);
-        }
-
-        ready.sort_unstable();
-
+    while !ready.is_empty() {
         let pick = ready
             .iter()
             .copied()
@@ -151,6 +178,8 @@ fn schedule_block_interleaved<A: Clone + PartialEq>(
             })
             .unwrap_or(ready[0]);
 
+        ready.retain(|&x| x != pick);
+
         let inst = window[pick].clone();
         if let SIRInstruction::Load(dst, _, _, _) = inst {
             inflight_loads.insert(dst);
@@ -161,11 +190,14 @@ fn schedule_block_interleaved<A: Clone + PartialEq>(
         }
 
         out.push(inst);
-        scheduled[pick] = true;
-        scheduled_count += 1;
 
+        // Update successors and add newly ready ones
         for &s in &succs[pick] {
-            indeg[s] = indeg[s].saturating_sub(1);
+            indeg[s] -= 1;
+            if indeg[s] == 0 {
+                let pos = ready.partition_point(|&x| x < s);
+                ready.insert(pos, s);
+            }
         }
     }
 
@@ -177,7 +209,7 @@ pub(super) fn schedule_instructions<A: Clone + PartialEq>(
     max_inflight_loads: usize,
 ) {
     let n = instructions.len();
-    if n <= 1 {
+    if n <= 2 {
         return;
     }
 
@@ -212,7 +244,9 @@ pub(super) fn schedule_instructions<A: Clone + PartialEq>(
 fn coalesce_static_stores<A: Clone + std::fmt::Debug + PartialEq + Ord + std::hash::Hash>(
     instructions: &mut Vec<SIRInstruction<A>>,
     register_map: &mut HashMap<RegisterId, RegisterType>,
+    reg_counter: &mut usize,
 ) -> bool {
+    let next_id = reg_counter;
     let mut replaced_indices = std::collections::HashSet::new();
     let mut insertions: HashMap<usize, Vec<SIRInstruction<A>>> = HashMap::default();
 
@@ -253,6 +287,34 @@ fn coalesce_static_stores<A: Clone + std::fmt::Debug + PartialEq + Ord + std::ha
         }
 
         details.sort_by_key(|d| d.offset);
+
+        // When the same (offset, width) is stored multiple times (e.g. SCC
+        // unrolling stores to v[0] twice), only the LAST store matters — it
+        // overwrites the earlier one.  Keep only the store with the highest
+        // instruction index for each (offset, width) pair to prevent merging
+        // stale first-pass values with fresh second-pass values.
+        {
+            let mut best: HashMap<(usize, usize), usize> = HashMap::default();
+            for (i, d) in details.iter().enumerate() {
+                best.entry((d.offset, d.width))
+                    .and_modify(|prev| {
+                        if details[*prev].index < d.index {
+                            *prev = i;
+                        }
+                    })
+                    .or_insert(i);
+            }
+            let keep: std::collections::HashSet<usize> =
+                best.into_values().collect();
+            let mut i = 0;
+            details.retain(|_| {
+                let k = keep.contains(&i);
+                i += 1;
+                k
+            });
+            // Re-sort after filtering
+            details.sort_by_key(|d| d.offset);
+        }
 
         let mut segment_start = 0;
         while segment_start < details.len() {
@@ -317,8 +379,8 @@ fn coalesce_static_stores<A: Clone + std::fmt::Debug + PartialEq + Ord + std::ha
                     let triggers: Vec<crate::ir::TriggerIdWithKind> =
                         segment.iter().flat_map(|s| s.triggers.clone()).collect();
 
-                    let new_reg_id =
-                        RegisterId(register_map.keys().map(|r| r.0).max().unwrap_or(0) + 1);
+                    *next_id += 1;
+                    let new_reg_id = RegisterId(*next_id);
                     register_map.insert(new_reg_id, RegisterType::Logic { width: total_width });
 
                     for s in segment {
@@ -369,19 +431,20 @@ pub(super) fn optimize_block<A: Clone + std::fmt::Debug + PartialEq + Ord + std:
     block: &mut BasicBlock<A>,
     register_map: &mut HashMap<RegisterId, RegisterType>,
     unit_replacement_map: &mut HashMap<RegisterId, RegisterId>,
+    reg_counter: &mut usize,
 ) {
     const MAX_INFLIGHT_LOADS: usize = 8;
-    coalesce_static_loads(&mut block.instructions, register_map);
+    coalesce_static_loads(&mut block.instructions, register_map, reg_counter);
 
     // First pass: coalesce stores that are safe even with intermediate loads present
-    coalesce_static_stores(&mut block.instructions, register_map);
+    coalesce_static_stores(&mut block.instructions, register_map, reg_counter);
 
     let mut local_replacement_map = HashMap::default();
     eliminate_redundant_loads(&mut block.instructions, &mut local_replacement_map);
 
     // Second pass: after eliminate_redundant_loads removed store-forwarded loads,
     // previously-unsafe store groups may now be safe to coalesce
-    coalesce_static_stores(&mut block.instructions, register_map);
+    coalesce_static_stores(&mut block.instructions, register_map, reg_counter);
 
     for (from, to) in local_replacement_map {
         unit_replacement_map.insert(from, to);
@@ -394,6 +457,7 @@ pub(super) fn optimize_block<A: Clone + std::fmt::Debug + PartialEq + Ord + std:
 fn coalesce_static_loads<A: Clone + std::fmt::Debug + PartialEq + Ord + std::hash::Hash>(
     instructions: &mut Vec<SIRInstruction<A>>,
     register_map: &mut HashMap<RegisterId, RegisterType>,
+    reg_counter: &mut usize,
 ) {
     #[derive(Clone)]
     struct LoadInfo {
@@ -409,8 +473,12 @@ fn coalesce_static_loads<A: Clone + std::fmt::Debug + PartialEq + Ord + std::has
         loads: Vec<LoadInfo>,
     }
 
-    fn next_reg_id(map: &HashMap<RegisterId, RegisterType>) -> RegisterId {
-        RegisterId(map.keys().map(|r| r.0).max().unwrap_or(0) + 1)
+    fn next_reg_id(map: &HashMap<RegisterId, RegisterType>, counter: &mut usize) -> RegisterId {
+        *counter += 1;
+        while map.contains_key(&RegisterId(*counter)) {
+            *counter += 1;
+        }
+        RegisterId(*counter)
     }
 
     let mut segments: Vec<Segment<A>> = Vec::new();
@@ -500,7 +568,7 @@ fn coalesce_static_loads<A: Clone + std::fmt::Debug + PartialEq + Ord + std::has
             loads.sort_by_key(|x| x.index);
             let insert_idx = loads[0].index;
 
-            let wide_reg = next_reg_id(register_map);
+            let wide_reg = next_reg_id(register_map, reg_counter);
             register_map.insert(wide_reg, RegisterType::Logic { width: 64 });
             insertions
                 .entry(insert_idx)
@@ -518,14 +586,14 @@ fn coalesce_static_loads<A: Clone + std::fmt::Debug + PartialEq + Ord + std::has
                 let mut source_reg = wide_reg;
 
                 if rel_off != 0 {
-                    let shift_reg = next_reg_id(register_map);
+                    let shift_reg = next_reg_id(register_map, reg_counter);
                     register_map.insert(shift_reg, RegisterType::Logic { width: 64 });
                     ops.push(SIRInstruction::Imm(
                         shift_reg,
                         SIRValue::new(rel_off as u64),
                     ));
 
-                    let shifted_reg = next_reg_id(register_map);
+                    let shifted_reg = next_reg_id(register_map, reg_counter);
                     register_map.insert(shifted_reg, RegisterType::Logic { width: 64 });
                     ops.push(SIRInstruction::Binary(
                         shifted_reg,
@@ -537,7 +605,7 @@ fn coalesce_static_loads<A: Clone + std::fmt::Debug + PartialEq + Ord + std::has
                 }
 
                 if ld.width < 64 {
-                    let mask_reg = next_reg_id(register_map);
+                    let mask_reg = next_reg_id(register_map, reg_counter);
                     register_map.insert(mask_reg, RegisterType::Logic { width: 64 });
                     let mask = if ld.width == 64 {
                         BigUint::from(u64::MAX)
@@ -553,7 +621,7 @@ fn coalesce_static_loads<A: Clone + std::fmt::Debug + PartialEq + Ord + std::has
                         mask_reg,
                     ));
                 } else {
-                    let zero_reg = next_reg_id(register_map);
+                    let zero_reg = next_reg_id(register_map, reg_counter);
                     register_map.insert(zero_reg, RegisterType::Logic { width: 64 });
                     ops.push(SIRInstruction::Imm(zero_reg, SIRValue::new(0u8)));
                     ops.push(SIRInstruction::Binary(

@@ -373,6 +373,12 @@ pub fn sort<Addr: Clone + Eq + Hash + Debug + Copy + Display>(
             }
         }
     };
+    // Maximum blocks in a single EU before flushing to a new one.
+    // This prevents Cranelift from choking on massive functions.
+    const EU_BLOCK_LIMIT: usize = 20_000;
+
+    let mut result_eus: Vec<ExecutionUnit<Addr>> = Vec::new();
+
     // 4. Scheduling: Process each SCC by selecting either Static Unrolling (A) or Dynamic Convergence (B).
     for scc in ctx.sccs {
         let mut user_safety_limit = None;
@@ -564,7 +570,15 @@ pub fn sort<Addr: Clone + Eq + Hash + Debug + Copy + Display>(
                 builder.switch_to_block(exit_block);
             }
         } else {
-            // DAG Part
+            // DAG Part — flush before emitting if the EU has grown too large
+            if builder.block_count() >= EU_BLOCK_LIMIT {
+                if let Some(eu) = builder.flush_eu() {
+                    result_eus.push(eu);
+                    // Clear the lowering cache — register IDs are EU-scoped
+                    lower_cache.clear();
+                }
+            }
+
             emit_node(
                 &mut builder,
                 scc[0],
@@ -577,9 +591,10 @@ pub fn sort<Addr: Clone + Eq + Hash + Debug + Copy + Display>(
 
     builder.seal_block(SIRTerminator::Return);
     let (blocks, reg_map, _) = builder.drain();
-    Ok(vec![ExecutionUnit {
+    result_eus.push(ExecutionUnit {
         entry_block_id: BlockId(0),
         blocks,
         register_map: reg_map,
-    }])
+    });
+    Ok(result_eus)
 }

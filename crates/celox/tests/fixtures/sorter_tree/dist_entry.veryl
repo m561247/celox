@@ -1,0 +1,45 @@
+// DistEntry: IVF-PQ 距離エントリ
+//
+// packed layout (64 bit):
+//   [63:32] distance   (u32, 小さいほど近い)
+//   [31: 0] vector_id  (u32, SIFT1M 以上のデータセットに対応)
+//
+// SorterTree に渡す際は distance を上位ビットに置くことで
+// 単純な符号なし比較 (<:) が最小距離選択と等価になる。
+//
+// 使い方: SorterTree を DistEntry::<> でインスタンス化する。
+//   const ENTRY_W = DistEntry::<>::ENTRY_W;  // = 64
+//   inst tree: SorterTree::<DistEntry::<>>(...)
+
+pub package DistEntry::<DIST_W: u32 = 32, ID_W: u32 = 32> for SorterItemProto {
+    const ENTRY_W: u32 = DIST_W + ID_W; // 通常 64
+
+    // SorterItemProto が要求する型
+    // distance を上位ビットに置くことで <: による全体比較が (dist, id) 辞書順と等価になる
+    type Item = logic<ENTRY_W>;
+
+    function lt(a: input Item, b: input Item) -> logic {
+        return a <: b;
+    }
+
+    // --- packing / unpacking helpers ---
+
+    function pack (
+        d : input logic<DIST_W>,
+        id: input logic<ID_W>  ,
+    ) -> Item {
+        return {d, id};
+    }
+
+    function distance (
+        e: input Item,
+    ) -> logic<DIST_W> {
+        return e[ENTRY_W - 1:ID_W];
+    }
+
+    function vector_id (
+        e: input Item,
+    ) -> logic<ID_W> {
+        return e[ID_W - 1:0];
+    }
+}

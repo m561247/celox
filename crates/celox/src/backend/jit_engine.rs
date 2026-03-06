@@ -139,7 +139,27 @@ impl JitEngine {
         Ok(func_id)
     }
 
+    /// Maximum number of SIR blocks in a single Cranelift function before we
+    /// split into multiple functions called sequentially.
+    const BLOCK_SPLIT_THRESHOLD: usize = 20_000;
+
     pub fn compile_units(
+        &mut self,
+        units: &[crate::ir::ExecutionUnit<RegionedAbsoluteAddr>],
+        pre_clif_out: Option<&mut String>,
+        post_clif_out: Option<&mut String>,
+        native_out: Option<&mut String>,
+    ) -> Result<*const u8, String> {
+        // Check if any single EU is too large for one Cranelift function
+        let total_blocks: usize = units.iter().map(|eu| eu.blocks.len()).sum();
+        if total_blocks > Self::BLOCK_SPLIT_THRESHOLD {
+            return self.compile_units_batched(units, pre_clif_out, post_clif_out, native_out);
+        }
+
+        self.compile_units_single(units, pre_clif_out, post_clif_out, native_out)
+    }
+
+    fn compile_units_single(
         &mut self,
         units: &[crate::ir::ExecutionUnit<RegionedAbsoluteAddr>],
         pre_clif_out: Option<&mut String>,
@@ -175,6 +195,161 @@ impl JitEngine {
             .map_err(|e| format!("Failed to finalize JIT definitions: {e}"))?;
 
         Ok(self.module.get_finalized_function(func_id))
+    }
+
+    /// Compile units by splitting into multiple Cranelift functions called sequentially.
+    /// Each EU communicates only through shared memory, so no register passing is needed.
+    fn compile_units_batched(
+        &mut self,
+        units: &[crate::ir::ExecutionUnit<RegionedAbsoluteAddr>],
+        mut pre_clif_out: Option<&mut String>,
+        mut post_clif_out: Option<&mut String>,
+        mut native_out: Option<&mut String>,
+    ) -> Result<*const u8, String> {
+        let timing = std::env::var("CELOX_PASS_TIMING").is_ok();
+
+        // 1. Partition units into batches, each under BLOCK_SPLIT_THRESHOLD blocks
+        let mut batches: Vec<Vec<usize>> = Vec::new();
+        let mut current_batch: Vec<usize> = Vec::new();
+        let mut current_blocks = 0usize;
+
+        for (i, eu) in units.iter().enumerate() {
+            let eu_blocks = eu.blocks.len();
+
+            // If a single EU exceeds the threshold, it gets its own batch
+            if eu_blocks > Self::BLOCK_SPLIT_THRESHOLD {
+                if !current_batch.is_empty() {
+                    batches.push(std::mem::take(&mut current_batch));
+                    current_blocks = 0;
+                }
+                batches.push(vec![i]);
+                continue;
+            }
+
+            if current_blocks + eu_blocks > Self::BLOCK_SPLIT_THRESHOLD && !current_batch.is_empty()
+            {
+                batches.push(std::mem::take(&mut current_batch));
+                current_blocks = 0;
+            }
+
+            current_batch.push(i);
+            current_blocks += eu_blocks;
+        }
+        if !current_batch.is_empty() {
+            batches.push(current_batch);
+        }
+
+        if timing {
+            eprintln!(
+                "[jit-split] Splitting {} EUs ({} total blocks) into {} batches",
+                units.len(),
+                units.iter().map(|eu| eu.blocks.len()).sum::<usize>(),
+                batches.len()
+            );
+        }
+
+        // 2. Compile each batch as a separate function
+        let mut batch_func_ids: Vec<FuncId> = Vec::with_capacity(batches.len());
+        let mut builder_ctx = FunctionBuilderContext::new();
+
+        for (batch_idx, batch) in batches.iter().enumerate() {
+            let batch_start = timing.then(std::time::Instant::now);
+
+            let batch_units: Vec<_> = batch.iter().map(|&i| &units[i]).cloned().collect();
+
+            let mut ctx = self.module.make_context();
+            define_simulation_function(&mut self.module, &mut ctx);
+
+            {
+                let builder = FunctionBuilder::new(&mut ctx.func, &mut builder_ctx);
+                self.translator.translate_units(&batch_units, builder);
+            }
+
+            let func_id = self
+                .module
+                .declare_anonymous_function(&ctx.func.signature)
+                .map_err(|e| format!("Failed to declare batch {batch_idx} function: {e}"))?;
+
+            let label = format!("=== eval_comb batch[{batch_idx}] ===");
+            self.optimize_and_define(
+                &mut ctx,
+                func_id,
+                &label,
+                pre_clif_out.as_deref_mut(),
+                post_clif_out.as_deref_mut(),
+                native_out.as_deref_mut(),
+            )?;
+
+            batch_func_ids.push(func_id);
+
+            if let Some(s) = batch_start {
+                let batch_blocks: usize = batch.iter().map(|&i| units[i].blocks.len()).sum();
+                eprintln!(
+                    "[jit-split]   batch[{batch_idx}]: {} EUs, {} blocks, {:?}",
+                    batch.len(),
+                    batch_blocks,
+                    s.elapsed()
+                );
+            }
+        }
+
+        // 3. Build a wrapper function that calls each batch in sequence
+        let mut ctx = self.module.make_context();
+        define_simulation_function(&mut self.module, &mut ctx);
+
+        let batch_func_refs: Vec<_> = batch_func_ids
+            .iter()
+            .map(|&fid| self.module.declare_func_in_func(fid, &mut ctx.func))
+            .collect();
+
+        {
+            let mut builder = FunctionBuilder::new(&mut ctx.func, &mut builder_ctx);
+            let entry = builder.create_block();
+            builder.append_block_params_for_function_params(entry);
+            builder.switch_to_block(entry);
+            let mem_ptr = builder.block_params(entry)[0];
+
+            for &func_ref in &batch_func_refs {
+                let call = builder.ins().call(func_ref, &[mem_ptr]);
+                let result = builder.inst_results(call)[0];
+                // Check for error return (non-zero = error)
+                let ok = builder.ins().icmp_imm(IntCC::Equal, result, 0);
+                let continue_block = builder.create_block();
+                let error_block = builder.create_block();
+                builder.ins().brif(ok, continue_block, &[], error_block, &[]);
+
+                builder.switch_to_block(error_block);
+                builder.ins().return_(&[result]);
+
+                builder.switch_to_block(continue_block);
+            }
+
+            let zero = builder.ins().iconst(types::I64, 0);
+            builder.ins().return_(&[zero]);
+
+            builder.seal_all_blocks();
+            builder.finalize();
+        }
+
+        let wrapper_func_id = self
+            .module
+            .declare_anonymous_function(&ctx.func.signature)
+            .map_err(|e| format!("Failed to declare wrapper function: {e}"))?;
+
+        self.optimize_and_define(
+            &mut ctx,
+            wrapper_func_id,
+            "=== eval_comb wrapper ===",
+            pre_clif_out,
+            post_clif_out,
+            native_out,
+        )?;
+
+        self.module
+            .finalize_definitions()
+            .map_err(|e| format!("Failed to finalize JIT definitions: {e}"))?;
+
+        Ok(self.module.get_finalized_function(wrapper_func_id))
     }
 
     /// Compile a chain of tail-call chunks, returning a C-callable entry pointer.

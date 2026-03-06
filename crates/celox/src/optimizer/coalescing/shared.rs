@@ -2,8 +2,12 @@ use crate::HashMap;
 use crate::HashSet;
 use crate::ir::*;
 
-fn next_register_id(register_map: &HashMap<RegisterId, RegisterType>) -> RegisterId {
-    RegisterId(register_map.keys().map(|r| r.0).max().unwrap_or(0) + 1)
+fn next_register_id(register_map: &mut HashMap<RegisterId, RegisterType>, counter: &mut usize) -> RegisterId {
+    *counter += 1;
+    while register_map.contains_key(&RegisterId(*counter)) {
+        *counter += 1;
+    }
+    RegisterId(*counter)
 }
 
 /// Returns `Some(RegisterId)` for instructions that define a register.
@@ -116,57 +120,6 @@ fn collect_terminator_used_regs(term: &SIRTerminator, out: &mut HashSet<Register
     }
 }
 
-fn replace_reg_in_instruction<A>(inst: &mut SIRInstruction<A>, from: RegisterId, to: RegisterId) {
-    match inst {
-        SIRInstruction::Imm(_, _) => {}
-        SIRInstruction::Binary(_, lhs, _, rhs) => {
-            if *lhs == from {
-                *lhs = to;
-            }
-            if *rhs == from {
-                *rhs = to;
-            }
-        }
-        SIRInstruction::Unary(_, _, src) => {
-            if *src == from {
-                *src = to;
-            }
-        }
-        SIRInstruction::Load(_, _, SIROffset::Dynamic(off), _) => {
-            if *off == from {
-                *off = to;
-            }
-        }
-        SIRInstruction::Load(_, _, SIROffset::Static(_), _) => {}
-        SIRInstruction::Store(_, SIROffset::Dynamic(off), _, src, _) => {
-            if *off == from {
-                *off = to;
-            }
-            if *src == from {
-                *src = to;
-            }
-        }
-        SIRInstruction::Store(_, SIROffset::Static(_), _, src, _) => {
-            if *src == from {
-                *src = to;
-            }
-        }
-        SIRInstruction::Commit(_, _, SIROffset::Dynamic(off), _, _) => {
-            if *off == from {
-                *off = to;
-            }
-        }
-        SIRInstruction::Commit(_, _, SIROffset::Static(_), _, _) => {}
-        SIRInstruction::Concat(_, args) => {
-            for arg in args {
-                if *arg == from {
-                    *arg = to;
-                }
-            }
-        }
-    }
-}
-
 pub(super) fn replace_reg_in_terminator(
     term: &mut SIRTerminator,
     from: RegisterId,
@@ -203,25 +156,9 @@ pub(super) fn replace_reg_in_terminator(
     }
 }
 
-pub(super) fn replace_register_uses(
-    eu: &mut ExecutionUnit<RegionedAbsoluteAddr>,
-    from: RegisterId,
-    to: RegisterId,
-) {
-    for block in eu.blocks.values_mut() {
-        for p in &mut block.params {
-            if *p == from {
-                *p = to;
-            }
-        }
-        for inst in &mut block.instructions {
-            replace_reg_in_instruction(inst, from, to);
-        }
-        replace_reg_in_terminator(&mut block.terminator, from, to);
-    }
-}
-
 pub(super) fn hoist_common_branch_loads(eu: &mut ExecutionUnit<RegionedAbsoluteAddr>) {
+    let mut reg_counter: usize = eu.register_map.keys().map(|r| r.0).max().unwrap_or(0);
+
     #[derive(Clone, Copy)]
     struct Candidate {
         pred: BlockId,
@@ -288,7 +225,10 @@ pub(super) fn hoist_common_branch_loads(eu: &mut ExecutionUnit<RegionedAbsoluteA
             break;
         }
 
+        // Batch: collect all replacements, then apply once
+        let mut replacement_map: HashMap<RegisterId, RegisterId> = HashMap::default();
         let mut changed = false;
+
         for c in candidates {
             let can_apply = if let (Some(t_block), Some(f_block)) =
                 (eu.blocks.get(&c.true_block), eu.blocks.get(&c.false_block))
@@ -312,7 +252,7 @@ pub(super) fn hoist_common_branch_loads(eu: &mut ExecutionUnit<RegionedAbsoluteA
                 continue;
             }
 
-            let hoisted_reg = if let Some(pred_block) = eu.blocks.get(&c.pred) {
+            let existing_reg = eu.blocks.get(&c.pred).and_then(|pred_block| {
                 pred_block.instructions.iter().find_map(|inst| match inst {
                     SIRInstruction::Load(dst, addr, SIROffset::Static(off), bits)
                         if *addr == c.addr && *off == c.offset && *bits == c.bits =>
@@ -321,11 +261,10 @@ pub(super) fn hoist_common_branch_loads(eu: &mut ExecutionUnit<RegionedAbsoluteA
                     }
                     _ => None,
                 })
-            } else {
-                None
-            }
-            .unwrap_or_else(|| {
-                let new_reg = next_register_id(&eu.register_map);
+            });
+
+            let hoisted_reg = existing_reg.unwrap_or_else(|| {
+                let new_reg = next_register_id(&mut eu.register_map, &mut reg_counter);
                 eu.register_map
                     .insert(new_reg, RegisterType::Logic { width: c.bits });
 
@@ -347,13 +286,130 @@ pub(super) fn hoist_common_branch_loads(eu: &mut ExecutionUnit<RegionedAbsoluteA
                 f_block.instructions.remove(0);
             }
 
-            replace_register_uses(eu, c.dst_true, hoisted_reg);
-            replace_register_uses(eu, c.dst_false, hoisted_reg);
+            replacement_map.insert(c.dst_true, hoisted_reg);
+            replacement_map.insert(c.dst_false, hoisted_reg);
             changed = true;
         }
 
         if !changed {
             break;
         }
+
+        // Resolve transitive replacements
+        let mut final_map = HashMap::default();
+        for &from in replacement_map.keys() {
+            let mut to = replacement_map[&from];
+            let mut depth = 0;
+            while let Some(&next_to) = replacement_map.get(&to) {
+                if next_to == to || depth > replacement_map.len() {
+                    break;
+                }
+                to = next_to;
+                depth += 1;
+            }
+            final_map.insert(from, to);
+        }
+
+        // Batch apply all replacements in a single pass over all blocks
+        for block in eu.blocks.values_mut() {
+            for p in &mut block.params {
+                if let Some(&to) = final_map.get(p) {
+                    *p = to;
+                }
+            }
+            for inst in &mut block.instructions {
+                batch_replace_in_inst(inst, &final_map);
+            }
+            batch_replace_in_terminator(&mut block.terminator, &final_map);
+        }
+    }
+}
+
+fn batch_replace_in_inst(
+    inst: &mut SIRInstruction<RegionedAbsoluteAddr>,
+    map: &HashMap<RegisterId, RegisterId>,
+) {
+    match inst {
+        SIRInstruction::Imm(_, _) => {}
+        SIRInstruction::Binary(_, lhs, _, rhs) => {
+            if let Some(&to) = map.get(lhs) {
+                *lhs = to;
+            }
+            if let Some(&to) = map.get(rhs) {
+                *rhs = to;
+            }
+        }
+        SIRInstruction::Unary(_, _, src) => {
+            if let Some(&to) = map.get(src) {
+                *src = to;
+            }
+        }
+        SIRInstruction::Load(_, _, SIROffset::Dynamic(off), _) => {
+            if let Some(&to) = map.get(off) {
+                *off = to;
+            }
+        }
+        SIRInstruction::Load(_, _, SIROffset::Static(_), _) => {}
+        SIRInstruction::Store(_, SIROffset::Dynamic(off), _, src, _) => {
+            if let Some(&to) = map.get(off) {
+                *off = to;
+            }
+            if let Some(&to) = map.get(src) {
+                *src = to;
+            }
+        }
+        SIRInstruction::Store(_, SIROffset::Static(_), _, src, _) => {
+            if let Some(&to) = map.get(src) {
+                *src = to;
+            }
+        }
+        SIRInstruction::Commit(_, _, SIROffset::Dynamic(off), _, _) => {
+            if let Some(&to) = map.get(off) {
+                *off = to;
+            }
+        }
+        SIRInstruction::Commit(_, _, SIROffset::Static(_), _, _) => {}
+        SIRInstruction::Concat(_, args) => {
+            for arg in args {
+                if let Some(&to) = map.get(arg) {
+                    *arg = to;
+                }
+            }
+        }
+    }
+}
+
+fn batch_replace_in_terminator(
+    term: &mut SIRTerminator,
+    map: &HashMap<RegisterId, RegisterId>,
+) {
+    match term {
+        SIRTerminator::Jump(_, args) => {
+            for arg in args {
+                if let Some(&to) = map.get(arg) {
+                    *arg = to;
+                }
+            }
+        }
+        SIRTerminator::Branch {
+            cond,
+            true_block,
+            false_block,
+        } => {
+            if let Some(&to) = map.get(cond) {
+                *cond = to;
+            }
+            for arg in &mut true_block.1 {
+                if let Some(&to) = map.get(arg) {
+                    *arg = to;
+                }
+            }
+            for arg in &mut false_block.1 {
+                if let Some(&to) = map.get(arg) {
+                    *arg = to;
+                }
+            }
+        }
+        SIRTerminator::Return | SIRTerminator::Error(_) => {}
     }
 }

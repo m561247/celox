@@ -4,6 +4,7 @@ use malachite_bigint::BigUint;
 use std::hash::Hash;
 
 pub struct SLTToSIRLowerer {
+    #[allow(dead_code)]
     pub four_state: bool,
 }
 
@@ -273,75 +274,17 @@ impl SLTToSIRLowerer {
         arena: &SLTNodeArena<A>,
         cache: &mut crate::HashMap<NodeId, RegisterId>,
     ) -> RegisterId {
-        if self.four_state {
-            // 4-state mode: Evaluate both branches and use AND/OR select pattern.
-            // This ensures X condition correctly propagates to the output.
-            // result = (cond_broadcast & then_val) | (~cond_broadcast & else_val)
-            self.lower_mux_select(builder, cond, then_expr, else_expr, arena, cache)
-        } else {
-            // 2-state mode: Use branch-based CFG for performance (lazy evaluation).
-            self.lower_mux_branch(builder, cond, then_expr, else_expr, arena, cache)
-        }
+        // Always use select-based (branchless) mux lowering.
+        // Branch-based creates 3 blocks per mux, which causes exponential
+        // block count growth in deeply nested mux trees (e.g. sorter networks).
+        // Select-based evaluates both sides but produces zero extra blocks,
+        // keeping Cranelift compilation tractable for large designs.
+        self.lower_mux_select(builder, cond, then_expr, else_expr, arena, cache)
     }
 
-    /// Branch-based mux lowering (2-state): evaluates only the selected branch.
-    fn lower_mux_branch<A: Hash + Eq + Clone + std::fmt::Debug + std::fmt::Display>(
-        &self,
-        builder: &mut SIRBuilder<A>,
-        cond: NodeId,
-        then_expr: NodeId,
-        else_expr: NodeId,
-        arena: &SLTNodeArena<A>,
-        cache: &mut crate::HashMap<NodeId, RegisterId>,
-    ) -> RegisterId {
-        // 1. Evaluate condition expression
-        let cond_reg = self.lower(builder, cond, arena, cache);
-
-        // 2. Create blocks
-        let then_bb = builder.new_block();
-        let else_bb = builder.new_block();
-        let merge_bb = builder.new_block();
-
-        // 3. Conditional evaluation: Jump to either the 'then' or 'else' block based on the condition.
-        // A merge block is used to reconcile the results (using block parameters as a Phi-equivalent).
-        let then_width = self.get_width(then_expr, arena);
-        let else_width = self.get_width(else_expr, arena);
-        let res_width = then_width.max(else_width);
-
-        let res_reg = builder.alloc_logic(res_width);
-
-        // Set parameters for merge block
-        builder.set_block_params(merge_bb, vec![res_reg]);
-
-        // 4. Issue conditional branch instruction
-        builder.seal_block(crate::ir::SIRTerminator::Branch {
-            cond: cond_reg,
-            true_block: (then_bb, vec![]),
-            false_block: (else_bb, vec![]),
-        });
-
-        // --- Then Path ---
-        builder.switch_to_block(then_bb);
-        let mut then_cache = cache.clone();
-        let then_val = self.lower(builder, then_expr, arena, &mut then_cache);
-        builder.seal_block(crate::ir::SIRTerminator::Jump(merge_bb, vec![then_val]));
-
-        // --- Else Path ---
-        builder.switch_to_block(else_bb);
-        let mut else_cache = cache.clone();
-        let else_val = self.lower(builder, else_expr, arena, &mut else_cache);
-        builder.seal_block(crate::ir::SIRTerminator::Jump(merge_bb, vec![else_val]));
-
-        // --- Switch to merge point ---
-        builder.switch_to_block(merge_bb);
-
-        // Return register ID pointing to merged value
-        res_reg
-    }
-
-    /// Select-based mux lowering (4-state): evaluates both branches, then selects.
+    /// Select-based mux lowering: evaluates both branches, then selects.
     /// result = (cond_broadcast & then_val) | (~cond_broadcast & else_val)
-    /// When cond is X, Minus(X) → all-X mask → AND propagates X → result is X.
+    /// When cond is X, Sub(0, X) → all-X mask → AND propagates X → result is X.
     fn lower_mux_select<A: Hash + Eq + Clone + std::fmt::Debug + std::fmt::Display>(
         &self,
         builder: &mut SIRBuilder<A>,
@@ -359,12 +302,18 @@ impl SLTToSIRLowerer {
         let else_width = self.get_width(else_expr, arena);
         let res_width = then_width.max(else_width);
 
-        // Broadcast 1-bit cond to res_width using Minus:
-        //   -1 = 0xFF...F (all ones), -0 = 0x00...0 (all zeros)
+        // Broadcast 1-bit cond to res_width using 0 - cond at res_width:
+        //   0 - 1 = 0xFF...F (all ones), 0 - 0 = 0x00...0 (all zeros)
+        // We use Binary(Sub) instead of Unary(Minus) because Minus computes
+        // at the source register's width (1-bit), giving 0x01 not 0xFF...FF.
+        // When cond is X, Sub propagates X through the borrow chain → all-X mask.
+        let zero = builder.alloc_logic(res_width);
+        builder.emit(SIRInstruction::Imm(zero, SIRValue::new(0u64)));
         let cond_broadcast = builder.alloc_logic(res_width);
-        builder.emit(SIRInstruction::Unary(
+        builder.emit(SIRInstruction::Binary(
             cond_broadcast,
-            UnaryOp::Minus,
+            zero,
+            BinaryOp::Sub,
             cond_reg,
         ));
 
