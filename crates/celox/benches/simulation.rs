@@ -139,9 +139,10 @@ fn benchmark_counter(c: &mut Criterion) {
     let rst = sim.signal("rst");
     let cnt0 = sim.signal("cnt0");
 
-    sim.modify(|io| io.set(rst, 1u8)).unwrap();
-    sim.tick(clk).unwrap();
+    // AsyncLow reset: active at 0, inactive at 1
     sim.modify(|io| io.set(rst, 0u8)).unwrap();
+    sim.tick(clk).unwrap();
+    sim.modify(|io| io.set(rst, 1u8)).unwrap();
 
     c.bench_function("simulation_tick_top_n1000_x1", |b| {
         b.iter(|| {
@@ -449,14 +450,15 @@ fn benchmark_std_counter(c: &mut Criterion) {
     let i_up = sim.signal("i_up");
     let o_count = sim.signal("o_count");
 
+    // AsyncLow reset: active at 0, inactive at 1
     sim.modify(|io| {
-        io.set(rst, 1u8);
+        io.set(rst, 0u8);
         io.set(i_up, 0u8);
     })
     .unwrap();
     sim.tick(clk).unwrap();
     sim.modify(|io| {
-        io.set(rst, 0u8);
+        io.set(rst, 1u8);
         io.set(i_up, 1u8);
     })
     .unwrap();
@@ -499,14 +501,15 @@ fn benchmark_gray_counter(c: &mut Criterion) {
     let i_up = sim.signal("i_up");
     let o_count = sim.signal("o_count");
 
+    // AsyncLow reset: active at 0, inactive at 1
     sim.modify(|io| {
-        io.set(rst, 1u8);
+        io.set(rst, 0u8);
         io.set(i_up, 0u8);
     })
     .unwrap();
     sim.tick(clk).unwrap();
     sim.modify(|io| {
-        io.set(rst, 0u8);
+        io.set(rst, 1u8);
         io.set(i_up, 1u8);
     })
     .unwrap();

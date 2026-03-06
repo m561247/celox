@@ -3,10 +3,11 @@ use crate::{
     logic_tree::{LogicPath, SLTNodeArena, SymbolicStore},
 };
 use malachite_bigint::BigUint;
+use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::{collections::BTreeSet, fmt::Display};
 use veryl_analyzer::ir::{VarId, VarPath, Variable};
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum DomainKind {
     ClockPosedge,
     ClockNegedge,
@@ -27,7 +28,7 @@ pub enum PortTypeKind {
     Other,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct TriggerIdWithKind {
     pub kind: DomainKind,
     pub id: usize,
@@ -58,7 +59,7 @@ impl fmt::Debug for VariableInfo {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct TriggerSet<A> {
     pub clock: A,
     pub resets: Vec<A>,
@@ -206,7 +207,7 @@ impl Program {
         addrs
     }
 }
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy, Serialize, Deserialize)]
 pub struct BitAccess {
     pub lsb: usize,
     pub msb: usize,
@@ -241,7 +242,7 @@ impl BitAccess {
         atoms
     }
 }
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy, Serialize, Deserialize)]
 pub struct VarAtomBase<A> {
     pub id: A,
     pub access: BitAccess,
@@ -277,16 +278,20 @@ mod builder;
 pub(crate) use builder::SIRBuilder;
 use veryl_parser::resource_table::StrId;
 /// Block identifier
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct BlockId(pub usize);
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct GlueBlock {
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(bound(serialize = "V: Serialize", deserialize = "V: Deserialize<'de> + std::hash::Hash + Eq + Clone"))]
+pub struct GlueBlockBase<V: std::hash::Hash + Eq + Clone> {
     pub module_id: ModuleId,
-    pub input_ports: Vec<(Vec<VarId>, LogicPath<GlueAddr>)>,
-    pub output_ports: Vec<(Vec<VarId>, LogicPath<GlueAddr>)>,
-    pub arena: SLTNodeArena<GlueAddr>,
+    pub input_ports: Vec<(Vec<V>, LogicPath<GlueAddrBase<V>>)>,
+    pub output_ports: Vec<(Vec<V>, LogicPath<GlueAddrBase<V>>)>,
+    pub arena: SLTNodeArena<GlueAddrBase<V>>,
 }
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
+
+/// Concrete glue block using the Veryl analyzer's `VarId`.
+pub type GlueBlock = GlueBlockBase<VarId>;
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct ModuleId(pub usize);
 
 impl fmt::Display for ModuleId {
@@ -295,7 +300,7 @@ impl fmt::Display for ModuleId {
     }
 }
 
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct InstanceId(pub usize);
 
 impl fmt::Display for InstanceId {
@@ -304,13 +309,16 @@ impl fmt::Display for InstanceId {
     }
 }
 
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
-pub struct AbsoluteAddr {
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct AbsoluteAddrBase<V> {
     pub instance_id: InstanceId,
-    pub var_id: VarId,
+    pub var_id: V,
 }
 
-impl fmt::Display for AbsoluteAddr {
+/// Concrete address type using the Veryl analyzer's `VarId`.
+pub type AbsoluteAddr = AbsoluteAddrBase<VarId>;
+
+impl<V: fmt::Display> fmt::Display for AbsoluteAddrBase<V> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "AbsoluteAddr({}, {})", self.instance_id, self.var_id)
     }
@@ -333,13 +341,16 @@ pub struct InstancePath(pub Vec<(StrId, usize)>);
 pub const STABLE_REGION: u32 = 0;
 pub const WORKING_REGION: u32 = 1;
 
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
-pub struct RegionedVarAddr {
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct RegionedVarAddrBase<V> {
     pub region: u32,
-    pub var_id: VarId,
+    pub var_id: V,
 }
 
-impl fmt::Display for RegionedVarAddr {
+/// Concrete regioned variable address using the Veryl analyzer's `VarId`.
+pub type RegionedVarAddr = RegionedVarAddrBase<VarId>;
+
+impl<V: fmt::Display> fmt::Display for RegionedVarAddrBase<V> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
@@ -349,15 +360,18 @@ impl fmt::Display for RegionedVarAddr {
     }
 }
 
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
-pub struct RegionedAbsoluteAddr {
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct RegionedAbsoluteAddrBase<V> {
     pub region: u32,
     pub instance_id: InstanceId,
-    pub var_id: VarId,
+    pub var_id: V,
 }
 
-impl RegionedAbsoluteAddr {
-    pub fn from_absolute_addr(region: u32, addr: AbsoluteAddr) -> Self {
+/// Concrete regioned address type using the Veryl analyzer's `VarId`.
+pub type RegionedAbsoluteAddr = RegionedAbsoluteAddrBase<VarId>;
+
+impl<V: Copy> RegionedAbsoluteAddrBase<V> {
+    pub fn from_absolute_addr(region: u32, addr: AbsoluteAddrBase<V>) -> Self {
         Self {
             region,
             instance_id: addr.instance_id,
@@ -365,15 +379,15 @@ impl RegionedAbsoluteAddr {
         }
     }
 
-    pub fn absolute_addr(&self) -> AbsoluteAddr {
-        AbsoluteAddr {
+    pub fn absolute_addr(&self) -> AbsoluteAddrBase<V> {
+        AbsoluteAddrBase {
             instance_id: self.instance_id,
             var_id: self.var_id,
         }
     }
 }
 
-impl fmt::Display for RegionedAbsoluteAddr {
+impl<V: fmt::Display> fmt::Display for RegionedAbsoluteAddrBase<V> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
@@ -404,7 +418,8 @@ impl fmt::Debug for RelocationModule {
             .finish()
     }
 }
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(bound(serialize = "A: Serialize", deserialize = "A: Deserialize<'de>"))]
 pub struct ExecutionUnit<A> {
     pub entry_block_id: BlockId,
     pub blocks: HashMap<BlockId, BasicBlock<A>>,
@@ -485,7 +500,8 @@ impl SimModule {
 }
 
 /// Basic Block: A sequence of linear instructions and a terminator instruction
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(bound(serialize = "Addr: Serialize", deserialize = "Addr: Deserialize<'de>"))]
 pub struct BasicBlock<Addr> {
     pub id: BlockId,
     pub params: Vec<RegisterId>,
@@ -516,7 +532,7 @@ impl<A: Display> fmt::Display for BasicBlock<A> {
 }
 
 /// Terminator instruction: Determines control flow
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SIRTerminator {
     /// Unconditional transition to the next block
     Jump(BlockId, Vec<RegisterId>),
@@ -573,7 +589,7 @@ impl fmt::Display for SIRTerminator {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RegisterType {
     Logic { width: usize },
     Bit { width: usize, signed: bool },
@@ -596,7 +612,7 @@ impl RegisterType {
     }
 }
 
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct RegisterId(pub usize);
 
 impl fmt::Display for RegisterId {
@@ -605,7 +621,7 @@ impl fmt::Display for RegisterId {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum BinaryOp {
     Add,
     Sub,
@@ -667,7 +683,7 @@ impl fmt::Display for BinaryOp {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum UnaryOp {
     Ident,
     Minus,
@@ -692,10 +708,12 @@ impl fmt::Display for UnaryOp {
         write!(f, "{}", op_str)
     }
 }
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 
 pub struct SIRValue {
+    #[serde(with = "crate::serde_helpers::biguint")]
     pub payload: BigUint,
+    #[serde(with = "crate::serde_helpers::biguint")]
     pub mask: BigUint,
 }
 impl SIRValue {
@@ -723,7 +741,7 @@ impl fmt::Display for SIRValue {
     }
 }
 
-#[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum SIROffset {
     /// Static bit offset
     Static(usize),
@@ -740,7 +758,8 @@ impl fmt::Display for SIROffset {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(bound(serialize = "Addr: Serialize", deserialize = "Addr: Deserialize<'de>"))]
 pub enum SIRInstruction<Addr> {
     Imm(RegisterId, SIRValue),
     Binary(RegisterId, RegisterId, BinaryOp, RegisterId),
@@ -840,25 +859,28 @@ impl<A> SIRInstruction<A> {
         }
     }
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum GlueAddr {
-    Parent(VarId),
-    Child(VarId),
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub enum GlueAddrBase<V> {
+    Parent(V),
+    Child(V),
 }
-impl GlueAddr {
-    pub fn var_id(&self) -> VarId {
+
+/// Concrete glue address type using the Veryl analyzer's `VarId`.
+pub type GlueAddr = GlueAddrBase<VarId>;
+
+impl<V: Copy> GlueAddrBase<V> {
+    pub fn var_id(&self) -> V {
         match self {
-            GlueAddr::Parent(var_id) => *var_id,
-            GlueAddr::Child(var_id) => *var_id,
+            GlueAddrBase::Parent(v) | GlueAddrBase::Child(v) => *v,
         }
     }
 }
 
-impl fmt::Display for GlueAddr {
+impl<V: fmt::Display> fmt::Display for GlueAddrBase<V> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            GlueAddr::Parent(var_id) => write!(f, "GlueAddr::Parent({})", var_id),
-            GlueAddr::Child(var_id) => write!(f, "GlueAddr::Child({})", var_id),
+            GlueAddrBase::Parent(v) => write!(f, "GlueAddr::Parent({})", v),
+            GlueAddrBase::Child(v) => write!(f, "GlueAddr::Child({})", v),
         }
     }
 }

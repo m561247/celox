@@ -28,13 +28,14 @@ fn benchmark_simulation_overhead(c: &mut Criterion) {
         let clk = sim.event("clk");
         let rst = sim.signal("rst");
 
+        // AsyncLow reset: active at 0, inactive at 1
         sim.modify(|io| {
-            io.set(rst, 1u8);
+            io.set(rst, 0u8);
         })
         .unwrap();
         sim.tick(clk).unwrap();
         sim.modify(|io| {
-            io.set(rst, 0u8);
+            io.set(rst, 1u8);
         })
         .unwrap();
 
