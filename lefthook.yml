@@ -1,6 +1,10 @@
 pre-push:
   piped: true
   commands:
+    clean-tree:
+      priority: 0
+      run: git diff --quiet && git diff --cached --quiet
+      fail_text: "Push rejected: uncommitted changes exist. Commit or stash them first."
     submodule-check:
       priority: 1
       run: bash scripts/check-submodules.sh
