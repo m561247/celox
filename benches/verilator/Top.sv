@@ -1,20 +1,19 @@
-// Equivalent of the Veryl benchmark module used by Celox:
-//   N=1000 parallel 32-bit counters (active-high async reset).
 module Top #(
-    parameter N = 1000
-)(
-    input  logic        clk,
-    input  logic        rst,
-    output logic [31:0] cnt [0:N-1],
-    output logic [31:0] cnt0
+    parameter int unsigned N = 1000
+) (
+    input  var logic          clk     ,
+    input  var logic          rst     ,
+    output var logic [32-1:0] cnt  [N],
+    output var logic [32-1:0] cnt0
 );
-    assign cnt0 = cnt[0];
-    for (genvar i = 0; i < N; i++) begin : g
-        always_ff @(posedge clk or posedge rst) begin
-            if (rst)
-                cnt[i] <= 32'd0;
-            else
-                cnt[i] <= cnt[i] + 32'd1;
+    always_comb cnt0 = cnt[0];
+    for (genvar i = 0; i < N; i++) begin :g
+        always_ff @ (posedge clk, negedge rst) begin
+            if (!rst) begin
+                cnt[i] <= 0;
+            end else begin
+                cnt[i] <= cnt[i] + (1);
+            end
         end
     end
 endmodule
