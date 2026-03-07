@@ -717,7 +717,45 @@ impl<'a> FfParser<'a> {
         context_width: Option<usize>,
     ) -> Result<(), ParserError> {
         match factor {
-            Factor::Variable(var_id, var_index, var_select, _comptime) => {
+            Factor::Variable(var_id, var_index, var_select, comptime) => {
+                // Compile-time constant parameter: emit as constant instead of loading
+                // from memory (parameters are not stored in simulation memory).
+                if comptime.is_const {
+                    let is_bare =
+                        var_index.0.is_empty() && var_select.0.is_empty() && var_select.1.is_none();
+                    if is_bare {
+                        if let Some((celox_value, mask_xz, width, _)) =
+                            celox_value_from_comptime(comptime)
+                        {
+                            self.op_constant(
+                                SIRValue::new_four_state(celox_value, mask_xz),
+                                context_width.unwrap_or(width),
+                                ir_builder,
+                            );
+                            return Ok(());
+                        }
+                    } else if is_static_access(var_index, var_select) {
+                        if let Some((celox_value, mask_xz, _full_width, _)) =
+                            celox_value_from_comptime(comptime)
+                        {
+                            if let Ok(access) =
+                                eval_var_select(self.module, *var_id, var_index, var_select)
+                            {
+                                let extracted_width = access.msb - access.lsb + 1;
+                                let mask =
+                                    (BigUint::from(1u64) << extracted_width) - BigUint::from(1u64);
+                                let extracted_val = (&celox_value >> access.lsb) & &mask;
+                                let extracted_mask = (&mask_xz >> access.lsb) & &mask;
+                                self.op_constant(
+                                    SIRValue::new_four_state(extracted_val, extracted_mask),
+                                    context_width.unwrap_or(extracted_width),
+                                    ir_builder,
+                                );
+                                return Ok(());
+                            }
+                        }
+                    }
+                }
                 if let Some(bound_expr) = self.get_bound_function_arg_expr(*var_id) {
                     let bound_expr = bound_expr.clone();
                     if var_index.0.is_empty() && var_select.0.is_empty() && var_select.1.is_none() {

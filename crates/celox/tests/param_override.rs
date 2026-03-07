@@ -34,7 +34,6 @@ fn test_param_override_basic_width() {
 
 /// Param value reflected in logic (assign b = a + OFFSET).
 #[test]
-#[ignore = "blocked by upstream Veryl IR bug"]
 fn test_param_override_logic_reflection() {
     let code = r#"
         module Top #(
@@ -67,7 +66,6 @@ fn test_param_override_logic_reflection() {
 
 /// No override → default value is used.
 #[test]
-#[ignore = "blocked by upstream Veryl IR bug"]
 fn test_param_override_default_value() {
     let code = r#"
         module Top #(
@@ -111,6 +109,209 @@ fn test_param_override_multiple() {
         .unwrap();
     let o = sim.signal("o");
     assert_eq!(sim.get(o), 30u32.into());
+}
+
+/// Param expression `N - 1` inside always_ff must evaluate correctly.
+#[test]
+fn test_param_in_always_ff() {
+    let code = r#"
+        module Top #(
+            param N: u32 = 8,
+        )(
+            clk:   input  '_ clock,
+            rst:   input  '_ reset,
+            start: input  logic,
+            done:  output logic,
+        ) {
+            var counter: logic<32>;
+            var running: logic;
+
+            always_ff (clk, rst) {
+                if_reset {
+                    counter = 0;
+                    running = 0;
+                } else {
+                    if start && !(|running) {
+                        counter = 0;
+                        running = 1;
+                    } else if (|running) {
+                        if counter == N - 1 {
+                            running = 0;
+                            counter = 0;
+                        } else {
+                            counter = counter + 1;
+                        }
+                    }
+                }
+            }
+
+            assign done = !(|running);
+        }
+    "#;
+
+    let mut sim = Simulator::builder(code, "Top").build().unwrap();
+    let clk = sim.signal("clk");
+    let rst = sim.signal("rst");
+    let start = sim.signal("start");
+    let done = sim.signal("done");
+    let counter = sim.signal("counter");
+
+    // Reset
+    sim.modify(|io| {
+        io.set(rst, 1u8);
+        io.set(clk, 0u8);
+        io.set(start, 0u8);
+    })
+    .unwrap();
+    sim.modify(|io| io.set(clk, 1u8)).unwrap();
+    sim.modify(|io| io.set(rst, 0u8)).unwrap();
+
+    // Start
+    sim.modify(|io| io.set(start, 1u8)).unwrap();
+    sim.modify(|io| io.set(clk, 0u8)).unwrap();
+    sim.modify(|io| io.set(clk, 1u8)).unwrap();
+    sim.modify(|io| io.set(start, 0u8)).unwrap();
+
+    // Clock N-1 = 7 more times — counter should reach 7 and stop
+    for i in 0..7 {
+        sim.modify(|io| io.set(clk, 0u8)).unwrap();
+        sim.modify(|io| io.set(clk, 1u8)).unwrap();
+        let c: u64 = sim.get(counter).try_into().unwrap();
+        eprintln!("cycle {i}: counter={c}, done={:?}", sim.get(done));
+    }
+
+    // After 8 total rising edges (1 start + 7 more), counter should have hit N-1=7
+    // and running should be 0 → done should be 1
+    let done_val: u64 = sim.get(done).try_into().unwrap();
+    assert_eq!(done_val, 1, "done should be 1 after N=8 cycles");
+
+    // Now test with N overridden to 4
+    let mut sim = Simulator::builder(code, "Top")
+        .param("N", 4)
+        .build()
+        .unwrap();
+    let clk = sim.signal("clk");
+    let rst = sim.signal("rst");
+    let start = sim.signal("start");
+    let done = sim.signal("done");
+    let counter = sim.signal("counter");
+
+    // Reset
+    sim.modify(|io| {
+        io.set(rst, 1u8);
+        io.set(clk, 0u8);
+        io.set(start, 0u8);
+    })
+    .unwrap();
+    sim.modify(|io| io.set(clk, 1u8)).unwrap();
+    sim.modify(|io| io.set(rst, 0u8)).unwrap();
+
+    // Start
+    sim.modify(|io| io.set(start, 1u8)).unwrap();
+    sim.modify(|io| io.set(clk, 0u8)).unwrap();
+    sim.modify(|io| io.set(clk, 1u8)).unwrap();
+    sim.modify(|io| io.set(start, 0u8)).unwrap();
+
+    // Clock N-1 = 3 more times
+    for i in 0..3 {
+        sim.modify(|io| io.set(clk, 0u8)).unwrap();
+        sim.modify(|io| io.set(clk, 1u8)).unwrap();
+        let c: u64 = sim.get(counter).try_into().unwrap();
+        eprintln!("override cycle {i}: counter={c}, done={:?}", sim.get(done));
+    }
+
+    let done_val: u64 = sim.get(done).try_into().unwrap();
+    assert_eq!(
+        done_val, 1,
+        "done should be 1 after N=4 cycles with override"
+    );
+}
+
+/// Param expression in always_ff of a child instance with overridden params.
+#[test]
+fn test_param_in_child_always_ff() {
+    let code = r#"
+        module Counter #(
+            param N: u32 = 1024,
+        )(
+            clk:   input  '_ clock,
+            rst:   input  '_ reset,
+            start: input  logic,
+            done:  output logic,
+        ) {
+            var counter: logic<32>;
+            var running: logic;
+
+            always_ff (clk, rst) {
+                if_reset {
+                    counter = 0;
+                    running = 0;
+                } else {
+                    if start && !(|running) {
+                        counter = 0;
+                        running = 1;
+                    } else if (|running) {
+                        if counter == N - 1 {
+                            running = 0;
+                            counter = 0;
+                        } else {
+                            counter = counter + 1;
+                        }
+                    }
+                }
+            }
+
+            assign done = !(|running);
+        }
+
+        module Top (
+            clk:   input  '_ clock,
+            rst:   input  '_ reset,
+            start: input  logic,
+            done:  output logic,
+        ) {
+            inst u_counter: Counter #(N: 4) (
+                clk:   clk,
+                rst:   rst,
+                start: start,
+                done:  done,
+            );
+        }
+    "#;
+
+    let mut sim = Simulator::builder(code, "Top").build().unwrap();
+    let clk = sim.signal("clk");
+    let rst = sim.signal("rst");
+    let start = sim.signal("start");
+    let done = sim.signal("done");
+
+    // Reset
+    sim.modify(|io| {
+        io.set(rst, 1u8);
+        io.set(clk, 0u8);
+        io.set(start, 0u8);
+    })
+    .unwrap();
+    sim.modify(|io| io.set(clk, 1u8)).unwrap();
+    sim.modify(|io| io.set(rst, 0u8)).unwrap();
+
+    // Start
+    sim.modify(|io| io.set(start, 1u8)).unwrap();
+    sim.modify(|io| io.set(clk, 0u8)).unwrap();
+    sim.modify(|io| io.set(clk, 1u8)).unwrap();
+    sim.modify(|io| io.set(start, 0u8)).unwrap();
+
+    // Clock N-1 = 3 more times
+    for _ in 0..3 {
+        sim.modify(|io| io.set(clk, 0u8)).unwrap();
+        sim.modify(|io| io.set(clk, 1u8)).unwrap();
+    }
+
+    let done_val: u64 = sim.get(done).try_into().unwrap();
+    assert_eq!(
+        done_val, 1,
+        "done should be 1 after N=4 cycles (child override)"
+    );
 }
 
 /// Param propagation to a child module via inst param override.
