@@ -551,6 +551,60 @@ function writeBitPackedElement(
 	}
 }
 
+/**
+ * Read a single element from a bit-packed region (wide variant, any width).
+ *
+ * The JIT stores array elements contiguously at the bit level with no
+ * per-element padding. Element i occupies bits [i*W .. (i+1)*W - 1].
+ */
+function readBitPackedWide(
+	view: DataView,
+	baseOffset: number,
+	elementWidth: number,
+	i: number,
+): bigint {
+	const bitStart = i * elementWidth;
+	const byteStart = baseOffset + (bitStart >> 3);
+	const bitShift = bitStart & 7;
+	const bytesNeeded = (bitShift + elementWidth + 7) >> 3;
+
+	let raw = 0n;
+	for (let j = 0; j < bytesNeeded; j++) {
+		raw |= BigInt(view.getUint8(byteStart + j)) << BigInt(j * 8);
+	}
+	raw >>= BigInt(bitShift);
+	return raw & ((1n << BigInt(elementWidth)) - 1n);
+}
+
+/**
+ * Write a single element into a bit-packed region (wide variant, read-modify-write).
+ */
+function writeBitPackedWide(
+	view: DataView,
+	baseOffset: number,
+	elementWidth: number,
+	i: number,
+	value: bigint,
+): void {
+	const bitStart = i * elementWidth;
+	const byteStart = baseOffset + (bitStart >> 3);
+	const bitShift = bitStart & 7;
+	const bytesNeeded = (bitShift + elementWidth + 7) >> 3;
+
+	let raw = 0n;
+	for (let j = 0; j < bytesNeeded; j++) {
+		raw |= BigInt(view.getUint8(byteStart + j)) << BigInt(j * 8);
+	}
+
+	const elemMask = (1n << BigInt(elementWidth)) - 1n;
+	const clearMask = elemMask << BigInt(bitShift);
+	raw = (raw & ~clearMask) | ((value & elemMask) << BigInt(bitShift));
+
+	for (let j = 0; j < bytesNeeded; j++) {
+		view.setUint8(byteStart + j, Number((raw >> BigInt(j * 8)) & 0xffn));
+	}
+}
+
 function createArrayDut(
 	view: DataView,
 	baseSig: SignalLayout,
@@ -566,13 +620,13 @@ function createArrayDut(
 	const baseOffset = baseSig.offset;
 	const is4state = baseSig.is4state;
 
-	if (elementWidth < 8) {
-		// Sub-byte elements: the JIT stores them bit-packed.
-		// Element i occupies bits [i*W .. (i+1)*W - 1] starting at baseOffset.
-		// For 4-state signals the mask region starts immediately after the value bytes.
-		const totalValueBytes = Math.ceil((totalElements * elementWidth) / 8);
-		const maskBase = baseOffset + totalValueBytes;
+	// All elements are bit-packed: element i starts at bit i*elementWidth.
+	// 4-state mask region starts immediately after the value region.
+	const totalValueBytes = Math.ceil((totalElements * elementWidth) / 8);
+	const maskBase = baseOffset + totalValueBytes;
 
+	if (elementWidth < 8) {
+		// Sub-byte elements: use optimised number-based bit-packed I/O.
 		return {
 			length: totalElements,
 
@@ -646,11 +700,61 @@ function createArrayDut(
 		};
 	}
 
-	// elementWidth >= 8: byte-aligned stride.
-	const elementByteSize = Math.ceil(elementWidth / 8);
-	// 4-state: mask region starts after ALL value bytes, not after each element.
-	const totalValueBytes = totalElements * elementByteSize;
-	const maskBase = baseOffset + totalValueBytes;
+	if (elementWidth % 8 !== 0) {
+		// Non-byte-aligned elements (>= 8 bits): use BigInt-based bit-packed I/O.
+		return {
+			length: totalElements,
+
+			at(i: number): bigint {
+				if (state.dirty && !isInput) {
+					handle.evalComb();
+					state.dirty = false;
+				}
+				return readBitPackedWide(view, baseOffset, elementWidth, i);
+			},
+
+			set(i: number, value: bigint | number | symbol | FourStateValue): void {
+				if (isOutput) {
+					throw new Error("Cannot write to output array port");
+				}
+				if (value === Symbol.for("veryl:X")) {
+					if (!is4state) {
+						throw new Error("Array port is not 4-state; cannot assign X");
+					}
+					const allOnes = (1n << BigInt(elementWidth)) - 1n;
+					writeBitPackedWide(view, baseOffset, elementWidth, i, allOnes);
+					writeBitPackedWide(view, maskBase, elementWidth, i, allOnes);
+				} else if (value === Symbol.for("veryl:Z")) {
+					if (!is4state) {
+						throw new Error("Array port is not 4-state; cannot assign Z");
+					}
+					const allOnes = (1n << BigInt(elementWidth)) - 1n;
+					writeBitPackedWide(view, baseOffset, elementWidth, i, 0n);
+					writeBitPackedWide(view, maskBase, elementWidth, i, allOnes);
+				} else if (isFourStateValue(value)) {
+					if (!is4state) {
+						throw new Error(
+							"Array port is not 4-state; cannot assign FourState",
+						);
+					}
+					writeBitPackedWide(view, baseOffset, elementWidth, i, value.value);
+					writeBitPackedWide(view, maskBase, elementWidth, i, value.mask);
+				} else {
+					const bigVal =
+						typeof value === "bigint" ? value : BigInt(value as number);
+					writeBitPackedWide(view, baseOffset, elementWidth, i, bigVal);
+					if (is4state) {
+						writeBitPackedWide(view, maskBase, elementWidth, i, 0n);
+					}
+				}
+				state.dirty = true;
+			},
+		};
+	}
+
+	// Byte-aligned elements (elementWidth % 8 === 0): use byte-stride I/O.
+	const elementByteSize = elementWidth >> 3;
+	const maskBase2 = baseOffset + totalElements * elementByteSize;
 
 	return {
 		length: totalElements,
@@ -672,7 +776,7 @@ function createArrayDut(
 				throw new Error("Cannot write to output array port");
 			}
 			const offset = baseOffset + i * elementByteSize;
-			const maskOffset = maskBase + i * elementByteSize;
+			const maskOffset = maskBase2 + i * elementByteSize;
 			if (value === Symbol.for("veryl:X")) {
 				if (!is4state) {
 					throw new Error("Array port is not 4-state; cannot assign X");

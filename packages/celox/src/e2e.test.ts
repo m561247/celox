@@ -2610,3 +2610,50 @@ describe("E2E: Proto package ordering (issue #22)", () => {
 		sim.dispose();
 	});
 });
+
+// ---------------------------------------------------------------------------
+// Bug fix: non-byte-aligned unpacked array port (logic<34> [N])
+// ---------------------------------------------------------------------------
+
+const NON_BYTE_ALIGNED_ARRAY_SOURCE = `
+pub module NonByteAlignedArray #(
+    param N: u32 = 4,
+) (
+    clk: input  clock,
+    rst: input  reset,
+    out: output logic<34> [N],
+) {
+    for i in 0..N :g {
+        assign out[i] = (i as 34) << 29;
+    }
+}
+`;
+
+describe("E2E: non-byte-aligned unpacked array port", () => {
+	test("out.at(i) returns correct values for 34-bit elements", () => {
+		interface Ports {
+			rst: bigint;
+			readonly out: {
+				at(i: number): bigint;
+				length: number;
+			};
+		}
+
+		const sim = Simulator.fromSource<Ports>(
+			NON_BYTE_ALIGNED_ARRAY_SOURCE,
+			"NonByteAlignedArray",
+		);
+		sim.dut.rst = 0n;
+		sim.tick();
+		sim.tick();
+		sim.dut.rst = 1n;
+		sim.tick();
+
+		for (let i = 0; i < 4; i++) {
+			const expected = BigInt(i) << 29n;
+			expect(sim.dut.out.at(i)).toBe(expected);
+		}
+
+		sim.dispose();
+	});
+});
