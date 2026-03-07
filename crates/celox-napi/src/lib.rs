@@ -460,7 +460,7 @@ fn build_cache_key(
 
 /// Simulator backend state: either a full Simulator or a cached JitBackend.
 enum SimBackend {
-    Full(celox::Simulator),
+    Full(Box<celox::Simulator>),
     Cached(celox::JitBackend),
 }
 
@@ -582,7 +582,7 @@ impl NativeSimulatorHandle {
         }
 
         Ok(Self {
-            backend: Some(SimBackend::Full(sim)),
+            backend: Some(SimBackend::Full(Box::new(sim))),
             layout_json,
             events_json,
             hierarchy_json,
