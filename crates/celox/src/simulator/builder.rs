@@ -452,7 +452,8 @@ impl<'a> SimulatorBuilder<'a, Simulator> {
 
         let mut sim = Simulator::with_backend_and_program(backend, program, warnings);
         if let Some(path) = self.vcd_path {
-            let vcd_writer = crate::vcd::VcdWriter::new(path, &sim.program)
+            let descs = sim.build_vcd_descs(self.options.four_state);
+            let vcd_writer = crate::vcd::VcdWriter::new(path, &descs)
                 .map_err(|_| SimulatorError::from(crate::RuntimeErrorCode::InternalError))?;
             sim.vcd_writer = Some(vcd_writer);
         }
@@ -568,7 +569,8 @@ impl<'a> SimulatorBuilder<'a, crate::Simulation> {
 
         let mut sim = Simulator::with_backend_and_program(backend, program, warnings);
         if let Some(path) = self.vcd_path {
-            let vcd_writer = crate::vcd::VcdWriter::new(path, &sim.program)
+            let descs = sim.build_vcd_descs(self.options.four_state);
+            let vcd_writer = crate::vcd::VcdWriter::new(path, &descs)
                 .map_err(|_| SimulatorError::from(crate::RuntimeErrorCode::InternalError))?;
             sim.vcd_writer = Some(vcd_writer);
         }

@@ -102,17 +102,9 @@ impl Simulator {
             self.dirty = false;
         }
         if let Some(ref mut writer) = self.vcd_writer {
-            let backend = &self.backend;
-            writer
-                .dump(timestamp, |addr| {
-                    let signal = backend.resolve_signal(addr);
-                    if signal.is_4state {
-                        backend.get_four_state(signal)
-                    } else {
-                        (backend.get(signal), BigUint::from(0u32))
-                    }
-                })
-                .unwrap();
+            let (ptr, size) = self.backend.memory_as_ptr();
+            let memory = unsafe { std::slice::from_raw_parts(ptr as *const u8, size) };
+            writer.dump(timestamp, memory).unwrap();
         }
     }
 
@@ -226,6 +218,62 @@ impl Simulator {
     /// Returns a reference to the memory layout.
     pub fn layout(&self) -> &MemoryLayout {
         self.backend.layout()
+    }
+
+    /// Build VCD signal descriptors for all instances.
+    ///
+    /// The returned descriptors are self-contained (no IR references) and can
+    /// be cached alongside [`SharedJitCode`] so that VCD works on cache-hit
+    /// paths without the original [`Program`].
+    pub fn build_vcd_descs(&self, four_state_mode: bool) -> Vec<crate::vcd::VcdSignalDesc> {
+        let mut descs = Vec::new();
+        let mut sorted_instances: Vec<_> = self.program.instance_module.iter().collect();
+        sorted_instances.sort_by_key(|(id, _)| *id);
+
+        for (instance_id, module_id) in sorted_instances {
+            let variables = &self.program.module_variables[module_id];
+            let scope = format!("{}", instance_id);
+
+            let mut sorted_vars: Vec<_> = variables.iter().collect();
+            sorted_vars.sort_by(|a, b| {
+                let name_a = a.0.to_string();
+                let name_b = b.0.to_string();
+                name_a.cmp(&name_b)
+            });
+
+            for (var_path, info) in sorted_vars {
+                let name = var_path
+                    .0
+                    .iter()
+                    .map(|s| {
+                        veryl_parser::resource_table::get_str_value(*s)
+                            .unwrap()
+                            .to_string()
+                    })
+                    .collect::<Vec<_>>()
+                    .join(".");
+
+                let addr = crate::ir::AbsoluteAddr {
+                    instance_id: *instance_id,
+                    var_id: info.id,
+                };
+                let signal = self.backend.resolve_signal(&addr);
+
+                descs.push(crate::vcd::VcdSignalDesc {
+                    scope: scope.clone(),
+                    name,
+                    offset: signal.offset,
+                    width: signal.width,
+                    is_4state: four_state_mode && signal.is_4state,
+                });
+            }
+        }
+        descs
+    }
+
+    /// Consume the simulator and return the inner JIT backend.
+    pub fn into_backend(self) -> JitBackend {
+        self.backend
     }
 
     /// Returns all ports of the top-level module with their resolved signal references.

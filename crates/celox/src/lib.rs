@@ -12,6 +12,7 @@ pub(crate) mod serde_helpers;
 mod simulation;
 mod simulator;
 mod vcd;
+pub use vcd::{VcdSignalDesc, VcdWriter};
 
 pub use backend::SimulatorErrorCode as RuntimeErrorCode;
 
