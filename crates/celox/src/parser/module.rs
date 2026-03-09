@@ -1,8 +1,8 @@
 use std::collections::BTreeSet;
 
 use crate::ir::{
-    BitAccess, BlockId, ExecutionUnit, GlueAddr, GlueBlock, ModuleId, SIRBuilder, SIRTerminator,
-    SimModule, TriggerSet, VarAtomBase,
+    BitAccess, BlockId, ExecutionUnit, GlueAddr, GlueBlock, ModuleId, RegionedVarAddr, SIRBuilder,
+    SIRInstruction, SIROffset, SIRTerminator, SimModule, TriggerSet, VarAtomBase,
 };
 
 use crate::logic_tree::{
@@ -11,7 +11,7 @@ use crate::logic_tree::{
 };
 use crate::parser::{
     BuildConfig, LoweringPhase, ParserError, bitaccess::eval_var_select, bitslicer::BitSlicer,
-    ff::FfParser, registry::get_port_type, resolve_total_width,
+    ff::FfParser, registry::get_port_type, resolve_total_width, resolve_width,
 };
 use crate::{HashMap, HashSet};
 use veryl_analyzer::ir::{Component, Declaration, InstDeclaration, Module, VarId};
@@ -291,27 +291,19 @@ impl<'a> ModuleParser<'a> {
         let mut eval_apply_ff_blocks = HashMap::default();
 
         for (trigger_set, decls) in &ff_groups {
-            // Shared commit list (WORKING -> STABLE), one entry per unique written var.
-            let mut commits: Vec<crate::ir::SIRInstruction<crate::ir::RegionedVarAddr>> =
-                Vec::new();
+            // --- Collect array decomposition info ---
+            // Compute element widths for array variables written in this group.
+            let mut array_info: HashMap<VarId, (usize, usize)> = HashMap::default();
             let mut seen_var = HashSet::default();
             for var_id in FfParser::collect_written_vars(decls) {
                 if seen_var.insert(var_id) {
                     let var = &self.module.variables[&var_id];
-                    let width = resolve_total_width(self.module, var)?;
-                    commits.push(crate::ir::SIRInstruction::Commit(
-                        crate::ir::RegionedVarAddr {
-                            region: crate::ir::WORKING_REGION,
-                            var_id,
-                        },
-                        crate::ir::RegionedVarAddr {
-                            region: crate::ir::STABLE_REGION,
-                            var_id,
-                        },
-                        crate::ir::SIROffset::Static(0),
-                        width,
-                        Vec::new(),
-                    ));
+                    let element_width = resolve_width(self.module, var)?;
+                    let total_array = var.r#type.total_array().unwrap_or(1);
+                    // Only decompose: multi-element arrays with byte-aligned element width
+                    if total_array > 1 && element_width % 8 == 0 {
+                        array_info.insert(var_id, (element_width, total_array));
+                    }
                 }
             }
 
@@ -321,6 +313,78 @@ impl<'a> ModuleParser<'a> {
             // each with their own register namespace (no shared RegisterIds).
             let mut builder = SIRBuilder::new();
             self.ff_parser.parse_ff_group(decls, &mut builder)?;
+
+            // Detect dynamic access: any Dynamic offset on a decomposable array
+            // variable disqualifies it from decomposition.
+            let mut has_dynamic: HashSet<VarId> = HashSet::default();
+            for block in builder.blocks().values() {
+                for inst in &block.instructions {
+                    match inst {
+                        SIRInstruction::Store(addr, SIROffset::Dynamic(_), _, _, _)
+                        | SIRInstruction::Load(_, addr, SIROffset::Dynamic(_), _)
+                            if array_info.contains_key(&addr.var_id) =>
+                        {
+                            has_dynamic.insert(addr.var_id);
+                        }
+                        _ => {}
+                    }
+                }
+            }
+
+            // Final decomposable set: arrays with only static access.
+            let decomposable: HashSet<VarId> = array_info
+                .keys()
+                .filter(|v| !has_dynamic.contains(v))
+                .copied()
+                .collect();
+
+            // Shared commit list (WORKING -> STABLE).
+            // Decomposable arrays get per-element commits; others get whole-array.
+            let mut commits: Vec<SIRInstruction<RegionedVarAddr>> = Vec::new();
+            let mut seen_commit = HashSet::default();
+            for var_id in FfParser::collect_written_vars(decls) {
+                if seen_commit.insert(var_id) {
+                    if let Some(&(ew, n)) = array_info.get(&var_id) {
+                        if decomposable.contains(&var_id) {
+                            for i in 0..n {
+                                commits.push(SIRInstruction::Commit(
+                                    RegionedVarAddr {
+                                        region: crate::ir::WORKING_REGION,
+                                        var_id,
+                                        element_index: Some(i as u32),
+                                    },
+                                    RegionedVarAddr {
+                                        region: crate::ir::STABLE_REGION,
+                                        var_id,
+                                        element_index: Some(i as u32),
+                                    },
+                                    SIROffset::Static(0),
+                                    ew,
+                                    Vec::new(),
+                                ));
+                            }
+                            continue;
+                        }
+                    }
+                    let var = &self.module.variables[&var_id];
+                    let width = resolve_total_width(self.module, var)?;
+                    commits.push(SIRInstruction::Commit(
+                        RegionedVarAddr {
+                            region: crate::ir::WORKING_REGION,
+                            var_id,
+                            element_index: None,
+                        },
+                        RegionedVarAddr {
+                            region: crate::ir::STABLE_REGION,
+                            var_id,
+                            element_index: None,
+                        },
+                        SIROffset::Static(0),
+                        width,
+                        Vec::new(),
+                    ));
+                }
+            }
 
             // Clone before sealing: eval_apply_builder gets the commit instructions appended.
             let mut eval_apply_builder = builder.clone();
@@ -347,22 +411,47 @@ impl<'a> ModuleParser<'a> {
             };
 
             // Build seeds (STABLE -> WORKING) and prepend to both eval_only and eval_apply.
-            let mut seeds: Vec<crate::ir::SIRInstruction<crate::ir::RegionedVarAddr>> = Vec::new();
+            // Per-element seeds for decomposable arrays; whole-array for others.
+            let mut seeds: Vec<SIRInstruction<RegionedVarAddr>> = Vec::new();
             let mut seen_seed = HashSet::default();
             for var_id in FfParser::collect_written_vars(decls) {
                 if seen_seed.insert(var_id) {
+                    if let Some(&(ew, n)) = array_info.get(&var_id) {
+                        if decomposable.contains(&var_id) {
+                            for i in 0..n {
+                                seeds.push(SIRInstruction::Commit(
+                                    RegionedVarAddr {
+                                        region: crate::ir::STABLE_REGION,
+                                        var_id,
+                                        element_index: Some(i as u32),
+                                    },
+                                    RegionedVarAddr {
+                                        region: crate::ir::WORKING_REGION,
+                                        var_id,
+                                        element_index: Some(i as u32),
+                                    },
+                                    SIROffset::Static(0),
+                                    ew,
+                                    Vec::new(),
+                                ));
+                            }
+                            continue;
+                        }
+                    }
                     let var = &self.module.variables[&var_id];
                     let width = resolve_total_width(self.module, var)?;
-                    seeds.push(crate::ir::SIRInstruction::Commit(
-                        crate::ir::RegionedVarAddr {
+                    seeds.push(SIRInstruction::Commit(
+                        RegionedVarAddr {
                             region: crate::ir::STABLE_REGION,
                             var_id,
+                            element_index: None,
                         },
-                        crate::ir::RegionedVarAddr {
+                        RegionedVarAddr {
                             region: crate::ir::WORKING_REGION,
                             var_id,
+                            element_index: None,
                         },
-                        crate::ir::SIROffset::Static(0),
+                        SIROffset::Static(0),
                         width,
                         Vec::new(),
                     ));
@@ -374,6 +463,11 @@ impl<'a> ModuleParser<'a> {
                     s.append(&mut entry.instructions);
                     entry.instructions = s;
                 }
+            }
+
+            // Decompose Store/Load instructions for decomposable arrays.
+            for eu in [&mut eval_only_eu, &mut eval_apply_eu] {
+                decompose_eu_array_addrs(eu, &array_info, &decomposable);
             }
 
             // --- apply: minimal EU containing only commit instructions ---
@@ -414,6 +508,55 @@ impl<'a> ModuleParser<'a> {
             store: self.store,
             reset_clock_map: self.reset_clock_map,
         })
+    }
+}
+
+/// Rewrite Store/Load instructions in an FF execution unit to use per-element
+/// `element_index` for decomposable array variables. Static offsets that
+/// fall within an array element boundary are converted to element-specific
+/// addresses with the remaining inner offset.
+fn decompose_eu_array_addrs(
+    eu: &mut ExecutionUnit<RegionedVarAddr>,
+    array_info: &HashMap<VarId, (usize, usize)>,
+    decomposable: &HashSet<VarId>,
+) {
+    for block in eu.blocks.values_mut() {
+        let old = std::mem::take(&mut block.instructions);
+        block.instructions = old
+            .into_iter()
+            .map(|inst| match inst {
+                SIRInstruction::Store(addr, SIROffset::Static(off), bits, reg, triggers)
+                    if addr.element_index.is_none() && decomposable.contains(&addr.var_id) =>
+                {
+                    let (ew, _) = array_info[&addr.var_id];
+                    SIRInstruction::Store(
+                        RegionedVarAddr {
+                            element_index: Some((off / ew) as u32),
+                            ..addr
+                        },
+                        SIROffset::Static(off % ew),
+                        bits,
+                        reg,
+                        triggers,
+                    )
+                }
+                SIRInstruction::Load(rd, addr, SIROffset::Static(off), bits)
+                    if addr.element_index.is_none() && decomposable.contains(&addr.var_id) =>
+                {
+                    let (ew, _) = array_info[&addr.var_id];
+                    SIRInstruction::Load(
+                        rd,
+                        RegionedVarAddr {
+                            element_index: Some((off / ew) as u32),
+                            ..addr
+                        },
+                        SIROffset::Static(off % ew),
+                        bits,
+                    )
+                }
+                other => other,
+            })
+            .collect();
     }
 }
 

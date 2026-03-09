@@ -423,6 +423,7 @@ fn create_absolute_addr(
     AbsoluteAddr {
         instance_id,
         var_id,
+        element_index: None,
     }
 }
 fn parse_ignored_loops(
@@ -562,10 +563,12 @@ pub(crate) fn flatten(
             let reset_addr = AbsoluteAddr {
                 instance_id: *id,
                 var_id: *reset_var_id,
+                element_index: None,
             };
             let clock_addr = AbsoluteAddr {
                 instance_id: *id,
                 var_id: *clock_var_id,
+                element_index: None,
             };
             // Use canonical clock domain if available
             let canonical_clock = clock_domains
@@ -655,6 +658,7 @@ pub(crate) fn flatten(
                                         region: STABLE_REGION,
                                         instance_id: addr.instance_id,
                                         var_id: addr.var_id,
+                                        element_index: addr.element_index,
                                     })
                                 })
                                 .collect(),
@@ -964,6 +968,7 @@ fn propagate_boundaries(
             let addr = AbsoluteAddr {
                 instance_id: *id,
                 var_id: *var_id,
+                element_index: None,
             };
             current_boundaries.insert(addr, boundaries.clone());
         }
@@ -989,6 +994,7 @@ fn propagate_boundaries(
                             let child_abs = AbsoluteAddr {
                                 instance_id: child_id,
                                 var_id: child_var_id,
+                                element_index: None,
                             };
 
                             // Collect boundaries from all parent variables connected to this port
@@ -997,6 +1003,7 @@ fn propagate_boundaries(
                                 let parent_abs = AbsoluteAddr {
                                     instance_id: *id,
                                     var_id: *parent_var,
+                                    element_index: None,
                                 };
                                 if let Some(bounds) = current_boundaries.get(&parent_abs) {
                                     for b in bounds {
@@ -1025,6 +1032,7 @@ fn propagate_boundaries(
                                 let child_abs = AbsoluteAddr {
                                     instance_id: child_id,
                                     var_id: child_var_id,
+                                    element_index: None,
                                 };
 
                                 // Child -> Parent
@@ -1035,6 +1043,7 @@ fn propagate_boundaries(
                                         let parent_abs = AbsoluteAddr {
                                             instance_id: *id,
                                             var_id: *parent_var,
+                                            element_index: None,
                                         };
                                         let parent_bounds =
                                             current_boundaries.entry(parent_abs).or_default();
@@ -1054,6 +1063,7 @@ fn propagate_boundaries(
                                     let parent_abs = AbsoluteAddr {
                                         instance_id: *id,
                                         var_id: *parent_var,
+                                        element_index: None,
                                     };
                                     if let Some(bounds) = current_boundaries.get(&parent_abs) {
                                         for b in bounds {
@@ -1245,10 +1255,12 @@ fn unify_clock_domains(
                     let target_abs = AbsoluteAddr {
                         instance_id: *id,
                         var_id: logic_path.target.id,
+                        element_index: None,
                     };
                     let source_abs = AbsoluteAddr {
                         instance_id: *id,
                         var_id: logic_path.sources.iter().next().unwrap().id,
+                        element_index: None,
                     };
                     drive_graph.entry(source_abs).or_default().push(target_abs);
                 }
@@ -1266,11 +1278,13 @@ fn unify_clock_domains(
                         let child_abs = AbsoluteAddr {
                             instance_id: child_id,
                             var_id: child_var_id,
+                            element_index: None,
                         };
                         for parent_var in parent_vars {
                             let parent_abs = AbsoluteAddr {
                                 instance_id: *id,
                                 var_id: *parent_var,
+                                element_index: None,
                             };
                             drive_graph.entry(parent_abs).or_default().push(child_abs);
                         }
@@ -1282,12 +1296,14 @@ fn unify_clock_domains(
                         let parent_abs = AbsoluteAddr {
                             instance_id: *id,
                             var_id: *parent_var,
+                            element_index: None,
                         };
                         for source in &logic_path.sources {
                             if let GlueAddr::Child(child_var_id) = source.id {
                                 let child_abs = AbsoluteAddr {
                                     instance_id: child_id,
                                     var_id: child_var_id,
+                                    element_index: None,
                                 };
                                 drive_graph.entry(child_abs).or_default().push(parent_abs);
                             }
@@ -1391,6 +1407,7 @@ fn relocate_units(
             let clock_addr = AbsoluteAddr {
                 instance_id: *id,
                 var_id: trigger_set.clock,
+                element_index: None,
             };
             let canonical_addr = clock_domains
                 .get(&clock_addr)
@@ -1405,6 +1422,7 @@ fn relocate_units(
                         region: addr.region,
                         instance_id: *id,
                         var_id: addr.var_id,
+                        element_index: addr.element_index,
                     }
                 }));
 
@@ -1412,6 +1430,7 @@ fn relocate_units(
                 let reset_addr = AbsoluteAddr {
                     instance_id: *id,
                     var_id: reset,
+                    element_index: None,
                 };
                 let canonical_addr = clock_domains
                     .get(&reset_addr)
@@ -1425,6 +1444,7 @@ fn relocate_units(
                             region: addr.region,
                             instance_id: *id,
                             var_id: addr.var_id,
+                            element_index: addr.element_index,
                         }
                     }));
             }
@@ -1434,6 +1454,7 @@ fn relocate_units(
             let clock_addr = AbsoluteAddr {
                 instance_id: *id,
                 var_id: trigger_set.clock,
+                element_index: None,
             };
             let canonical_addr = clock_domains
                 .get(&clock_addr)
@@ -1447,6 +1468,7 @@ fn relocate_units(
                         region: addr.region,
                         instance_id: *id,
                         var_id: addr.var_id,
+                        element_index: addr.element_index,
                     }
                 }));
 
@@ -1454,6 +1476,7 @@ fn relocate_units(
                 let reset_addr = AbsoluteAddr {
                     instance_id: *id,
                     var_id: reset,
+                    element_index: None,
                 };
                 let canonical_addr = clock_domains
                     .get(&reset_addr)
@@ -1467,6 +1490,7 @@ fn relocate_units(
                             region: addr.region,
                             instance_id: *id,
                             var_id: addr.var_id,
+                            element_index: addr.element_index,
                         }
                     }));
             }
@@ -1476,6 +1500,7 @@ fn relocate_units(
             let clock_addr = AbsoluteAddr {
                 instance_id: *id,
                 var_id: trigger_set.clock,
+                element_index: None,
             };
             let canonical_addr = clock_domains
                 .get(&clock_addr)
@@ -1489,6 +1514,7 @@ fn relocate_units(
                         region: addr.region,
                         instance_id: *id,
                         var_id: addr.var_id,
+                        element_index: addr.element_index,
                     }
                 }));
 
@@ -1496,6 +1522,7 @@ fn relocate_units(
                 let reset_addr = AbsoluteAddr {
                     instance_id: *id,
                     var_id: reset,
+                    element_index: None,
                 };
                 let canonical_addr = clock_domains
                     .get(&reset_addr)
@@ -1509,6 +1536,7 @@ fn relocate_units(
                             region: addr.region,
                             instance_id: *id,
                             var_id: addr.var_id,
+                            element_index: addr.element_index,
                         }
                     }));
             }
@@ -1682,6 +1710,7 @@ fn analyze_clock_dependencies(
                 let addr = AbsoluteAddr {
                     instance_id: *id,
                     var_id: *var_id,
+                    element_index: None,
                 };
                 let canonical = clock_domains.get(&addr).copied().unwrap_or(addr);
                 // Add empty execution units so it becomes a valid event domain for scheduling

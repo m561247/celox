@@ -23,3 +23,4 @@ superseded の場合は後継 ADR へのリンクを記載する。
 |---|-------|------|--------|
 | [0001](0001-value-change-callback-gpi-vpi.md) | Value Change Callback / GPI / VPI | 2026-03-07 | proposed |
 | [0002](0002-external-modules.md) | External Modules | 2026-03-07 | proposed |
+| [0003](0003-temporal-logic-assertions.md) | Temporal Logic Assertions | 2026-03-09 | proposed |

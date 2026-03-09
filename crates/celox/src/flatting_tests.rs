@@ -102,6 +102,7 @@ fn setup_to_flatting(
         let addr = AbsoluteAddr {
             instance_id,
             var_id: *var_id,
+            element_index: None,
         };
         global_boundaries.insert(addr, boundaries.clone());
     }
@@ -120,6 +121,7 @@ fn setup_to_flatting(
                     AbsoluteAddr {
                         instance_id: child_id,
                         var_id: v,
+                        element_index: None,
                     }
                 } else {
                     continue;
@@ -131,6 +133,7 @@ fn setup_to_flatting(
                         let parent_addr = AbsoluteAddr {
                             instance_id,
                             var_id: parent_var,
+                            element_index: None,
                         };
                         if let Some(bounds) = global_boundaries.get(&parent_addr) {
                             use std::ops::Bound::*;

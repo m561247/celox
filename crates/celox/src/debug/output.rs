@@ -1,6 +1,6 @@
 use crate::HashMap;
 /// Module for outputting SIR and SLT from Veryl source code
-use crate::ir::{ModuleId, Program, RegionedAbsoluteAddr, SIRInstruction, SimModule};
+use crate::ir::{AbsoluteAddr, ModuleId, Program, RegionedAbsoluteAddr, SIRInstruction, SimModule};
 
 use crate::debug::CompilationTrace;
 use veryl_parser::resource_table;
@@ -204,11 +204,21 @@ pub fn format_program(program: &Program) -> String {
 }
 
 fn format_regioned_addr(addr: &RegionedAbsoluteAddr, program: &Program) -> String {
-    format!(
-        "{} (region={})",
-        program.get_path(&addr.absolute_addr()),
-        addr.region
-    )
+    let base_addr = AbsoluteAddr {
+        instance_id: addr.instance_id,
+        var_id: addr.var_id,
+        element_index: None,
+    };
+    if let Some(idx) = addr.element_index {
+        format!(
+            "{}[{}] (region={})",
+            program.get_path(&base_addr),
+            idx,
+            addr.region
+        )
+    } else {
+        format!("{} (region={})", program.get_path(&base_addr), addr.region)
+    }
 }
 
 fn format_instruction(inst: &SIRInstruction<RegionedAbsoluteAddr>, program: &Program) -> String {

@@ -70,6 +70,11 @@ export interface SignalLayout {
 	readonly typeKind?: string;
 	/** For reset signals, the name of the associated clock (from FfDeclaration). */
 	readonly associatedClock?: string;
+	/**
+	 * Byte stride between consecutive array elements. Present only for
+	 * decomposed arrays where stride may exceed `byteSize` due to alignment.
+	 */
+	readonly elementStride?: number;
 }
 
 // ---------------------------------------------------------------------------

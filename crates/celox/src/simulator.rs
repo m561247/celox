@@ -30,6 +30,9 @@ pub struct NamedSignal {
     pub info: VariableInfo,
     /// For reset signals, the name of the associated clock (from FfDeclaration).
     pub associated_clock: Option<String>,
+    /// Byte stride between consecutive array elements (for decomposed arrays).
+    /// `None` for scalar signals or non-decomposed arrays (stride == byte_size).
+    pub element_stride: Option<usize>,
 }
 
 /// A named event with its resolved ID and event reference.
@@ -260,6 +263,7 @@ impl Simulator {
                 let addr = crate::ir::AbsoluteAddr {
                     instance_id: *instance_id,
                     var_id: info.id,
+                    element_index: None,
                 };
                 let signal = self.backend.resolve_signal(&addr);
 
@@ -325,6 +329,7 @@ impl Simulator {
             let addr = crate::ir::AbsoluteAddr {
                 instance_id,
                 var_id: info.id,
+                element_index: None,
             };
             let signal = self.backend.resolve_signal(&addr);
 
@@ -335,11 +340,13 @@ impl Simulator {
                 .get(&addr)
                 .map(|clock_addr| self.program.get_path(clock_addr));
 
+            let element_stride = self.backend.layout().element_strides.get(&addr).copied();
             result.push(NamedSignal {
                 name,
                 signal,
                 info: info.clone(),
                 associated_clock,
+                element_stride,
             });
         }
         result

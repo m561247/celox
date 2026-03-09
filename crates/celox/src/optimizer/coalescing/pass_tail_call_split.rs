@@ -1195,6 +1195,7 @@ mod tests {
             region,
             instance_id: InstanceId(inst_id),
             var_id: make_var_id(var_id_val),
+            element_index: None,
         }
     }
 
