@@ -280,7 +280,8 @@ impl JitBackend {
         )?;
 
         // Release borrows captured by compile_ffs so engine is available again.
-        drop(compile_ffs);
+        // (Using `let _` instead of `drop()` to avoid clippy::drop_non_drop.)
+        let _ = compile_ffs;
 
         // Insert clock_domains aliases so every event signal resolves
         for (alias, canonical) in &sir.clock_domains {
