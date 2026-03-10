@@ -40,11 +40,21 @@ impl ProgramPass for CoalescingPass {
     }
 
     fn run(&self, program: &mut Program, options: &PassOptions) {
-        optimize_with_options(program, options.max_inflight_loads, options.four_state, &options.optimize_options);
+        optimize_with_options(
+            program,
+            options.max_inflight_loads,
+            options.four_state,
+            &options.optimize_options,
+        );
     }
 }
 
-fn optimize_with_options(program: &mut Program, max_inflight_loads: usize, four_state: bool, opt: &crate::optimizer::OptimizeOptions) {
+fn optimize_with_options(
+    program: &mut Program,
+    max_inflight_loads: usize,
+    four_state: bool,
+    opt: &crate::optimizer::OptimizeOptions,
+) {
     let timing = std::env::var("CELOX_PASS_TIMING").is_ok();
     let options = PassOptions {
         max_inflight_loads,
@@ -55,15 +65,33 @@ fn optimize_with_options(program: &mut Program, max_inflight_loads: usize, four_
     // 1. Unified Case (Fast Path): Full optimizations are safe.
     let phase_start = timing.then(std::time::Instant::now);
     let mut ff_passes = ExecutionUnitPassManager::new();
-    if opt.store_load_forwarding { ff_passes.add_pass(StoreLoadForwardingPass); }
-    if opt.hoist_common_branch_loads { ff_passes.add_pass(HoistCommonBranchLoadsPass); }
-    if opt.bit_extract_peephole { ff_passes.add_pass(BitExtractPeepholePass); }
-    if opt.optimize_blocks { ff_passes.add_pass(OptimizeBlocksPass); }
-    if opt.split_wide_commits { ff_passes.add_pass(SplitWideCommitsPass); }
-    if opt.commit_sinking { ff_passes.add_pass(CommitSinkingPass); }
-    if opt.inline_commit_forwarding { ff_passes.add_pass(InlineCommitForwardingPass); }
-    if opt.eliminate_dead_working_stores { ff_passes.add_pass(EliminateDeadWorkingStoresPass); }
-    if opt.reschedule { ff_passes.add_pass(ReschedulePass); }
+    if opt.store_load_forwarding {
+        ff_passes.add_pass(StoreLoadForwardingPass);
+    }
+    if opt.hoist_common_branch_loads {
+        ff_passes.add_pass(HoistCommonBranchLoadsPass);
+    }
+    if opt.bit_extract_peephole {
+        ff_passes.add_pass(BitExtractPeepholePass);
+    }
+    if opt.optimize_blocks {
+        ff_passes.add_pass(OptimizeBlocksPass);
+    }
+    if opt.split_wide_commits {
+        ff_passes.add_pass(SplitWideCommitsPass);
+    }
+    if opt.commit_sinking {
+        ff_passes.add_pass(CommitSinkingPass);
+    }
+    if opt.inline_commit_forwarding {
+        ff_passes.add_pass(InlineCommitForwardingPass);
+    }
+    if opt.eliminate_dead_working_stores {
+        ff_passes.add_pass(EliminateDeadWorkingStoresPass);
+    }
+    if opt.reschedule {
+        ff_passes.add_pass(ReschedulePass);
+    }
 
     let eu_count: usize = program.eval_apply_ffs.values().map(|v| v.len()).sum();
     for units in program.eval_apply_ffs.values_mut() {
@@ -79,11 +107,21 @@ fn optimize_with_options(program: &mut Program, max_inflight_loads: usize, four_
     // MUST NOT use EliminateDeadWorkingStoresPass because the Commits are in Phase 2.
     let phase_start = timing.then(std::time::Instant::now);
     let mut eval_only_passes = ExecutionUnitPassManager::new();
-    if opt.store_load_forwarding { eval_only_passes.add_pass(StoreLoadForwardingPass); }
-    if opt.hoist_common_branch_loads { eval_only_passes.add_pass(HoistCommonBranchLoadsPass); }
-    if opt.bit_extract_peephole { eval_only_passes.add_pass(BitExtractPeepholePass); }
-    if opt.optimize_blocks { eval_only_passes.add_pass(OptimizeBlocksPass); }
-    if opt.reschedule { eval_only_passes.add_pass(ReschedulePass); }
+    if opt.store_load_forwarding {
+        eval_only_passes.add_pass(StoreLoadForwardingPass);
+    }
+    if opt.hoist_common_branch_loads {
+        eval_only_passes.add_pass(HoistCommonBranchLoadsPass);
+    }
+    if opt.bit_extract_peephole {
+        eval_only_passes.add_pass(BitExtractPeepholePass);
+    }
+    if opt.optimize_blocks {
+        eval_only_passes.add_pass(OptimizeBlocksPass);
+    }
+    if opt.reschedule {
+        eval_only_passes.add_pass(ReschedulePass);
+    }
 
     let eu_count: usize = program.eval_only_ffs.values().map(|v| v.len()).sum();
     for units in program.eval_only_ffs.values_mut() {
@@ -98,13 +136,27 @@ fn optimize_with_options(program: &mut Program, max_inflight_loads: usize, four_
     // 3. Commit-Only Cache (Split Path Phase 2):
     let phase_start = timing.then(std::time::Instant::now);
     let mut apply_passes = ExecutionUnitPassManager::new();
-    if opt.store_load_forwarding { apply_passes.add_pass(StoreLoadForwardingPass); }
-    if opt.hoist_common_branch_loads { apply_passes.add_pass(HoistCommonBranchLoadsPass); }
-    if opt.bit_extract_peephole { apply_passes.add_pass(BitExtractPeepholePass); }
-    if opt.optimize_blocks { apply_passes.add_pass(OptimizeBlocksPass); } // Still useful for loading from working memory
-    if opt.split_wide_commits { apply_passes.add_pass(SplitWideCommitsPass); }
-    if opt.commit_sinking { apply_passes.add_pass(CommitSinkingPass); }
-    if opt.reschedule { apply_passes.add_pass(ReschedulePass); }
+    if opt.store_load_forwarding {
+        apply_passes.add_pass(StoreLoadForwardingPass);
+    }
+    if opt.hoist_common_branch_loads {
+        apply_passes.add_pass(HoistCommonBranchLoadsPass);
+    }
+    if opt.bit_extract_peephole {
+        apply_passes.add_pass(BitExtractPeepholePass);
+    }
+    if opt.optimize_blocks {
+        apply_passes.add_pass(OptimizeBlocksPass);
+    } // Still useful for loading from working memory
+    if opt.split_wide_commits {
+        apply_passes.add_pass(SplitWideCommitsPass);
+    }
+    if opt.commit_sinking {
+        apply_passes.add_pass(CommitSinkingPass);
+    }
+    if opt.reschedule {
+        apply_passes.add_pass(ReschedulePass);
+    }
 
     let eu_count: usize = program.apply_ffs.values().map(|v| v.len()).sum();
     for units in program.apply_ffs.values_mut() {
@@ -119,10 +171,18 @@ fn optimize_with_options(program: &mut Program, max_inflight_loads: usize, four_
     // 4. Combinational Blocks:
     let phase_start = timing.then(std::time::Instant::now);
     let mut comb_passes = ExecutionUnitPassManager::new();
-    if opt.store_load_forwarding { comb_passes.add_pass(StoreLoadForwardingPass); }
-    if opt.hoist_common_branch_loads { comb_passes.add_pass(HoistCommonBranchLoadsPass); }
-    if opt.bit_extract_peephole { comb_passes.add_pass(BitExtractPeepholePass); }
-    if opt.optimize_blocks { comb_passes.add_pass(OptimizeBlocksPass); }
+    if opt.store_load_forwarding {
+        comb_passes.add_pass(StoreLoadForwardingPass);
+    }
+    if opt.hoist_common_branch_loads {
+        comb_passes.add_pass(HoistCommonBranchLoadsPass);
+    }
+    if opt.bit_extract_peephole {
+        comb_passes.add_pass(BitExtractPeepholePass);
+    }
+    if opt.optimize_blocks {
+        comb_passes.add_pass(OptimizeBlocksPass);
+    }
 
     let eu_count = program.eval_comb.len();
     for (i, eu) in program.eval_comb.iter_mut().enumerate() {

@@ -164,15 +164,33 @@ fn parse_reset_type(s: &str) -> Result<celox::ResetType> {
 /// Convert NapiOptimizeOptions to celox::OptimizeOptions.
 fn convert_optimize_options(napi: &NapiOptimizeOptions) -> celox::OptimizeOptions {
     let mut opts = celox::OptimizeOptions::default();
-    if let Some(v) = napi.store_load_forwarding { opts.store_load_forwarding = v; }
-    if let Some(v) = napi.hoist_common_branch_loads { opts.hoist_common_branch_loads = v; }
-    if let Some(v) = napi.bit_extract_peephole { opts.bit_extract_peephole = v; }
-    if let Some(v) = napi.optimize_blocks { opts.optimize_blocks = v; }
-    if let Some(v) = napi.split_wide_commits { opts.split_wide_commits = v; }
-    if let Some(v) = napi.commit_sinking { opts.commit_sinking = v; }
-    if let Some(v) = napi.inline_commit_forwarding { opts.inline_commit_forwarding = v; }
-    if let Some(v) = napi.eliminate_dead_working_stores { opts.eliminate_dead_working_stores = v; }
-    if let Some(v) = napi.reschedule { opts.reschedule = v; }
+    if let Some(v) = napi.store_load_forwarding {
+        opts.store_load_forwarding = v;
+    }
+    if let Some(v) = napi.hoist_common_branch_loads {
+        opts.hoist_common_branch_loads = v;
+    }
+    if let Some(v) = napi.bit_extract_peephole {
+        opts.bit_extract_peephole = v;
+    }
+    if let Some(v) = napi.optimize_blocks {
+        opts.optimize_blocks = v;
+    }
+    if let Some(v) = napi.split_wide_commits {
+        opts.split_wide_commits = v;
+    }
+    if let Some(v) = napi.commit_sinking {
+        opts.commit_sinking = v;
+    }
+    if let Some(v) = napi.inline_commit_forwarding {
+        opts.inline_commit_forwarding = v;
+    }
+    if let Some(v) = napi.eliminate_dead_working_stores {
+        opts.eliminate_dead_working_stores = v;
+    }
+    if let Some(v) = napi.reschedule {
+        opts.reschedule = v;
+    }
     opts
 }
 
@@ -530,15 +548,33 @@ static JIT_CACHE: std::sync::LazyLock<Mutex<HashMap<CacheKey, Arc<CachedBuild>>>
 /// Pack OptimizeOptions bools into a bitmask for cache key hashing.
 fn encode_optimize_options(opts: &celox::OptimizeOptions) -> u16 {
     let mut flags: u16 = 0;
-    if opts.store_load_forwarding { flags |= 1 << 0; }
-    if opts.hoist_common_branch_loads { flags |= 1 << 1; }
-    if opts.bit_extract_peephole { flags |= 1 << 2; }
-    if opts.optimize_blocks { flags |= 1 << 3; }
-    if opts.split_wide_commits { flags |= 1 << 4; }
-    if opts.commit_sinking { flags |= 1 << 5; }
-    if opts.inline_commit_forwarding { flags |= 1 << 6; }
-    if opts.eliminate_dead_working_stores { flags |= 1 << 7; }
-    if opts.reschedule { flags |= 1 << 8; }
+    if opts.store_load_forwarding {
+        flags |= 1 << 0;
+    }
+    if opts.hoist_common_branch_loads {
+        flags |= 1 << 1;
+    }
+    if opts.bit_extract_peephole {
+        flags |= 1 << 2;
+    }
+    if opts.optimize_blocks {
+        flags |= 1 << 3;
+    }
+    if opts.split_wide_commits {
+        flags |= 1 << 4;
+    }
+    if opts.commit_sinking {
+        flags |= 1 << 5;
+    }
+    if opts.inline_commit_forwarding {
+        flags |= 1 << 6;
+    }
+    if opts.eliminate_dead_working_stores {
+        flags |= 1 << 7;
+    }
+    if opts.reschedule {
+        flags |= 1 << 8;
+    }
     flags
 }
 

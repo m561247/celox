@@ -92,7 +92,10 @@ fn run_bram_test(opts: OptimizeOptions) {
     sim.set(a_addr, 0u8);
     sim.tick(clk).unwrap();
     let val: u8 = sim.get_as(a_dout);
-    assert_eq!(val, 0xBB, "Re-write: mem[0] should be 0xBB, got 0x{val:02x}");
+    assert_eq!(
+        val, 0xBB,
+        "Re-write: mem[0] should be 0xBB, got 0x{val:02x}"
+    );
 
     // Other addresses must NOT be corrupted
     for addr in [4u8, 8, 12] {
