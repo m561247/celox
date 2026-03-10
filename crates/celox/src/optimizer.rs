@@ -2,10 +2,162 @@ use crate::ir::Program;
 
 pub mod coalescing;
 
+/// Cranelift backend optimization level.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CraneliftOptLevel {
+    /// No Cranelift-level optimizations.
+    None,
+    /// Optimize for execution speed (default).
+    #[default]
+    Speed,
+    /// Optimize for both speed and code size.
+    SpeedAndSize,
+}
+
+impl CraneliftOptLevel {
+    /// Returns the Cranelift settings string for this level.
+    pub fn as_cranelift_str(self) -> &'static str {
+        match self {
+            CraneliftOptLevel::None => "none",
+            CraneliftOptLevel::Speed => "speed",
+            CraneliftOptLevel::SpeedAndSize => "speed_and_size",
+        }
+    }
+}
+
+/// Register allocator algorithm for the Cranelift backend.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum RegallocAlgorithm {
+    /// Backtracking allocator with range splitting.
+    /// Slower compilation but generates better code with fewer spills.
+    #[default]
+    Backtracking,
+    /// Single-pass allocator.
+    /// Much faster compilation but generates code with more register spills and moves.
+    SinglePass,
+}
+
+impl RegallocAlgorithm {
+    /// Returns the Cranelift settings string for this algorithm.
+    pub fn as_cranelift_str(self) -> &'static str {
+        match self {
+            RegallocAlgorithm::Backtracking => "backtracking",
+            RegallocAlgorithm::SinglePass => "single_pass",
+        }
+    }
+}
+
+/// Fine-grained Cranelift backend options beyond the optimization level.
+#[derive(Debug, Clone, Copy)]
+pub struct CraneliftOptions {
+    /// Optimization level (default: Speed).
+    pub opt_level: CraneliftOptLevel,
+    /// Register allocator algorithm (default: Backtracking).
+    pub regalloc_algorithm: RegallocAlgorithm,
+    /// Enable alias analysis during egraph optimization (default: true).
+    /// Only effective when `opt_level` is not `None`.
+    pub enable_alias_analysis: bool,
+    /// Enable the Cranelift IR verifier (default: true).
+    /// Disabling saves compile time at the cost of less validation.
+    pub enable_verifier: bool,
+}
+
+impl Default for CraneliftOptions {
+    fn default() -> Self {
+        Self {
+            opt_level: CraneliftOptLevel::default(),
+            regalloc_algorithm: RegallocAlgorithm::default(),
+            enable_alias_analysis: true,
+            enable_verifier: true,
+        }
+    }
+}
+
+impl CraneliftOptions {
+    /// Fast compilation preset: no optimizations, single-pass regalloc, no verifier.
+    pub fn fast_compile() -> Self {
+        Self {
+            opt_level: CraneliftOptLevel::None,
+            regalloc_algorithm: RegallocAlgorithm::SinglePass,
+            enable_alias_analysis: false,
+            enable_verifier: false,
+        }
+    }
+}
+
+/// Per-pass enable/disable flags for fine-grained optimizer control.
+///
+/// All passes default to `true` (enabled). Set individual fields to `false`
+/// to skip specific optimization passes while keeping others active.
+#[derive(Debug, Clone, Copy)]
+pub struct OptimizeOptions {
+    pub store_load_forwarding: bool,
+    pub hoist_common_branch_loads: bool,
+    pub bit_extract_peephole: bool,
+    pub optimize_blocks: bool,
+    pub split_wide_commits: bool,
+    pub commit_sinking: bool,
+    pub inline_commit_forwarding: bool,
+    pub eliminate_dead_working_stores: bool,
+    pub reschedule: bool,
+}
+
+impl Default for OptimizeOptions {
+    fn default() -> Self {
+        Self {
+            store_load_forwarding: true,
+            hoist_common_branch_loads: true,
+            bit_extract_peephole: true,
+            optimize_blocks: true,
+            split_wide_commits: true,
+            commit_sinking: true,
+            inline_commit_forwarding: true,
+            eliminate_dead_working_stores: true,
+            reschedule: true,
+        }
+    }
+}
+
+impl OptimizeOptions {
+    /// All passes enabled.
+    pub fn all() -> Self {
+        Self::default()
+    }
+
+    /// All passes disabled.
+    pub fn none() -> Self {
+        Self {
+            store_load_forwarding: false,
+            hoist_common_branch_loads: false,
+            bit_extract_peephole: false,
+            optimize_blocks: false,
+            split_wide_commits: false,
+            commit_sinking: false,
+            inline_commit_forwarding: false,
+            eliminate_dead_working_stores: false,
+            reschedule: false,
+        }
+    }
+
+    /// Returns true if any pass is enabled.
+    pub fn any_enabled(&self) -> bool {
+        self.store_load_forwarding
+            || self.hoist_common_branch_loads
+            || self.bit_extract_peephole
+            || self.optimize_blocks
+            || self.split_wide_commits
+            || self.commit_sinking
+            || self.inline_commit_forwarding
+            || self.eliminate_dead_working_stores
+            || self.reschedule
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct PassOptions {
     pub max_inflight_loads: usize,
     pub four_state: bool,
+    pub optimize_options: OptimizeOptions,
 }
 
 impl Default for PassOptions {
@@ -13,6 +165,7 @@ impl Default for PassOptions {
         Self {
             max_inflight_loads: 8,
             four_state: false,
+            optimize_options: OptimizeOptions::default(),
         }
     }
 }
@@ -64,13 +217,14 @@ pub fn split_if_needed(program: &mut Program, four_state: bool) {
     }
 }
 
-pub fn optimize(program: &mut Program, four_state: bool) {
+pub fn optimize(program: &mut Program, four_state: bool, optimize_options: &OptimizeOptions) {
     let mut manager = PassManager::new();
     manager.add_pass(coalescing::CoalescingPass);
     manager.run(
         program,
         &PassOptions {
             four_state,
+            optimize_options: *optimize_options,
             ..PassOptions::default()
         },
     );

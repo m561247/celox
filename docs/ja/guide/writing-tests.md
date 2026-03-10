@@ -158,15 +158,42 @@ sim.runUntil(10000, { maxSteps: 500 });
 const sim = Simulator.fromSource(source, "Top", {
   fourState: true,      // 4 値 (X) シミュレーションを有効化
   vcd: "./dump.vcd",    // VCD 波形出力を書き出す
-  optimize: true,       // Cranelift 最適化パスを有効化
   clockType: "posedge", // クロック極性 (デフォルト: "posedge")
   resetType: "async_low", // リセットタイプ (デフォルト: "async_low")
   deadStorePolicy: "preserveAllPorts", // デッドストア除去ポリシー
   parameters: [         // トップレベルパラメータのオーバーライド
     { name: "WIDTH", value: 16 },
   ],
+
+  // オプティマイザ制御 (全パスデフォルト有効)
+  optimizeOptions: {
+    storeLoadForwarding: true,
+    hoistCommonBranchLoads: true,
+    bitExtractPeephole: true,
+    optimizeBlocks: true,
+    splitWideCommits: true,
+    commitSinking: true,
+    inlineCommitForwarding: true,
+    eliminateDeadWorkingStores: true,
+    reschedule: true,
+  },
+  craneliftOptLevel: "speed", // "none" | "speed" | "speedAndSize"
+  regallocAlgorithm: "backtracking", // "backtracking" | "singlePass"
+  enableAliasAnalysis: true, // egraph パスでのエイリアス解析
+  enableVerifier: true,      // Cranelift IR 検証器
 });
 ```
+
+`optimize` ブールショートハンドも引き続きサポートされます。`optimize: false` で全 SIRT 最適化パスを一括無効化できます。両方指定した場合はパスごとの `optimizeOptions` が優先されます。
+
+### Cranelift コンパイル速度
+
+Cranelift のコンパイルが遅い場合、最も効果が大きい設定は：
+
+- **`regallocAlgorithm: "singlePass"`** -- バックトラッキングレジスタアロケータからシングルパスアロケータに切り替え。コンパイルが大幅に速くなるが、レジスタスピルが増えるため実行は遅くなる。
+- **`craneliftOptLevel: "none"`** -- egraph 最適化パスを完全にスキップ。
+- **`enableVerifier: false`** -- IR 検証をスキップ。
+- **`enableAliasAnalysis: false`** -- egraph パスでのエイリアス解析を無効化（`craneliftOptLevel` が `"none"` 以外の場合のみ有効）。
 
 ## 型安全なインポート
 

@@ -55,12 +55,38 @@ pub struct NapiParamOverride {
     pub value: i64,
 }
 
+/// Per-pass optimizer control. All fields default to true when omitted.
+#[napi(object)]
+pub struct NapiOptimizeOptions {
+    pub store_load_forwarding: Option<bool>,
+    pub hoist_common_branch_loads: Option<bool>,
+    pub bit_extract_peephole: Option<bool>,
+    pub optimize_blocks: Option<bool>,
+    pub split_wide_commits: Option<bool>,
+    pub commit_sinking: Option<bool>,
+    pub inline_commit_forwarding: Option<bool>,
+    pub eliminate_dead_working_stores: Option<bool>,
+    pub reschedule: Option<bool>,
+}
+
 /// Options for creating a simulator/simulation handle.
 #[napi(object)]
 pub struct NapiOptions {
     pub four_state: Option<bool>,
     pub vcd: Option<String>,
+    /// Shorthand to enable/disable all SIRT optimization passes.
+    /// `true` = all on, `false` = all off. Overridden by `optimize_options` if both set.
     pub optimize: Option<bool>,
+    /// Per-pass optimizer flags.
+    pub optimize_options: Option<NapiOptimizeOptions>,
+    /// Cranelift backend optimization level: "none", "speed", or "speed_and_size".
+    pub cranelift_opt_level: Option<String>,
+    /// Register allocator algorithm: "backtracking" or "single_pass".
+    pub regalloc_algorithm: Option<String>,
+    /// Enable alias analysis in the Cranelift egraph pass. Default: true.
+    pub enable_alias_analysis: Option<bool>,
+    /// Enable the Cranelift IR verifier. Default: true.
+    pub enable_verifier: Option<bool>,
     pub false_loops: Option<Vec<NapiFalseLoop>>,
     pub true_loops: Option<Vec<NapiTrueLoop>>,
     /// Clock polarity: "posedge" or "negedge".
@@ -78,7 +104,9 @@ pub struct NapiOptions {
 /// Parsed builder options from NapiOptions.
 struct ParsedOptions {
     four_state: bool,
-    optimize: Option<bool>,
+    optimize_options: celox::OptimizeOptions,
+    cranelift_opt_level: celox::CraneliftOptLevel,
+    cranelift_options: celox::CraneliftOptions,
     vcd: Option<String>,
     false_loops: Vec<(
         (Vec<(String, usize)>, Vec<String>),
@@ -128,6 +156,46 @@ fn parse_reset_type(s: &str) -> Result<celox::ResetType> {
         "sync_low" => Ok(celox::ResetType::SyncLow),
         _ => Err(Error::from_reason(format!(
             "Invalid reset_type '{}'. Expected 'async_high', 'async_low', 'sync_high', or 'sync_low'.",
+            s
+        ))),
+    }
+}
+
+/// Convert NapiOptimizeOptions to celox::OptimizeOptions.
+fn convert_optimize_options(napi: &NapiOptimizeOptions) -> celox::OptimizeOptions {
+    let mut opts = celox::OptimizeOptions::default();
+    if let Some(v) = napi.store_load_forwarding { opts.store_load_forwarding = v; }
+    if let Some(v) = napi.hoist_common_branch_loads { opts.hoist_common_branch_loads = v; }
+    if let Some(v) = napi.bit_extract_peephole { opts.bit_extract_peephole = v; }
+    if let Some(v) = napi.optimize_blocks { opts.optimize_blocks = v; }
+    if let Some(v) = napi.split_wide_commits { opts.split_wide_commits = v; }
+    if let Some(v) = napi.commit_sinking { opts.commit_sinking = v; }
+    if let Some(v) = napi.inline_commit_forwarding { opts.inline_commit_forwarding = v; }
+    if let Some(v) = napi.eliminate_dead_working_stores { opts.eliminate_dead_working_stores = v; }
+    if let Some(v) = napi.reschedule { opts.reschedule = v; }
+    opts
+}
+
+/// Parse a Cranelift optimization level string.
+fn parse_cranelift_opt_level(s: &str) -> Result<celox::CraneliftOptLevel> {
+    match s {
+        "none" => Ok(celox::CraneliftOptLevel::None),
+        "speed" => Ok(celox::CraneliftOptLevel::Speed),
+        "speed_and_size" => Ok(celox::CraneliftOptLevel::SpeedAndSize),
+        _ => Err(Error::from_reason(format!(
+            "Invalid cranelift_opt_level '{}'. Expected 'none', 'speed', or 'speed_and_size'.",
+            s
+        ))),
+    }
+}
+
+/// Parse a register allocator algorithm string.
+fn parse_regalloc_algorithm(s: &str) -> Result<celox::RegallocAlgorithm> {
+    match s {
+        "backtracking" => Ok(celox::RegallocAlgorithm::Backtracking),
+        "single_pass" => Ok(celox::RegallocAlgorithm::SinglePass),
+        _ => Err(Error::from_reason(format!(
+            "Invalid regalloc_algorithm '{}'. Expected 'backtracking' or 'single_pass'.",
             s
         ))),
     }
@@ -194,9 +262,37 @@ fn parse_options(options: &Option<NapiOptions>) -> Result<ParsedOptions> {
                 .map(parse_dead_store_policy)
                 .transpose()?
                 .unwrap_or(celox::DeadStorePolicy::Off);
+            // Resolve optimize_options: per-pass flags take precedence over the shorthand bool.
+            let optimize_options = if let Some(ref oo) = o.optimize_options {
+                convert_optimize_options(oo)
+            } else if let Some(false) = o.optimize {
+                celox::OptimizeOptions::none()
+            } else {
+                celox::OptimizeOptions::all()
+            };
+            let cranelift_opt_level = o
+                .cranelift_opt_level
+                .as_deref()
+                .map(parse_cranelift_opt_level)
+                .transpose()?
+                .unwrap_or(celox::CraneliftOptLevel::Speed);
+            let regalloc_algorithm = o
+                .regalloc_algorithm
+                .as_deref()
+                .map(parse_regalloc_algorithm)
+                .transpose()?
+                .unwrap_or(celox::RegallocAlgorithm::Backtracking);
+            let cranelift_options = celox::CraneliftOptions {
+                opt_level: cranelift_opt_level,
+                regalloc_algorithm,
+                enable_alias_analysis: o.enable_alias_analysis.unwrap_or(true),
+                enable_verifier: o.enable_verifier.unwrap_or(true),
+            };
             Ok(ParsedOptions {
                 four_state: o.four_state.unwrap_or(false),
-                optimize: o.optimize,
+                optimize_options,
+                cranelift_opt_level,
+                cranelift_options,
                 vcd: o.vcd.clone(),
                 false_loops,
                 true_loops,
@@ -209,7 +305,9 @@ fn parse_options(options: &Option<NapiOptions>) -> Result<ParsedOptions> {
         }
         None => Ok(ParsedOptions {
             four_state: false,
-            optimize: None,
+            optimize_options: celox::OptimizeOptions::all(),
+            cranelift_opt_level: celox::CraneliftOptLevel::Speed,
+            cranelift_options: celox::CraneliftOptions::default(),
             vcd: None,
             false_loops: Vec::new(),
             true_loops: Vec::new(),
@@ -351,9 +449,8 @@ fn apply_options<'a, T>(
     opts: &ParsedOptions,
 ) -> celox::SimulatorBuilder<'a, T> {
     builder = builder.four_state(opts.four_state);
-    if let Some(opt) = opts.optimize {
-        builder = builder.optimize(opt);
-    }
+    builder = builder.optimize_options(opts.optimize_options);
+    builder = builder.cranelift_options(opts.cranelift_options);
     // VCD is handled separately after build — not passed to SimulatorBuilder
     for (from, to) in &opts.false_loops {
         builder = builder.false_loop(from.clone(), to.clone());
@@ -402,7 +499,12 @@ struct CacheKey {
     sources: Vec<(String, String)>,
     top: String,
     four_state: bool,
-    optimize: Option<bool>,
+    /// Encoded OptimizeOptions: 9 bools packed into a u16 bitmask.
+    optimize_flags: u16,
+    cranelift_opt_level: u8,
+    regalloc_algorithm: u8,
+    enable_alias_analysis: bool,
+    enable_verifier: bool,
     dead_store_policy: u8,
     clock_type: Option<u8>,
     reset_type: Option<u8>,
@@ -425,6 +527,21 @@ struct CacheKey {
 static JIT_CACHE: std::sync::LazyLock<Mutex<HashMap<CacheKey, Arc<CachedBuild>>>> =
     std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
 
+/// Pack OptimizeOptions bools into a bitmask for cache key hashing.
+fn encode_optimize_options(opts: &celox::OptimizeOptions) -> u16 {
+    let mut flags: u16 = 0;
+    if opts.store_load_forwarding { flags |= 1 << 0; }
+    if opts.hoist_common_branch_loads { flags |= 1 << 1; }
+    if opts.bit_extract_peephole { flags |= 1 << 2; }
+    if opts.optimize_blocks { flags |= 1 << 3; }
+    if opts.split_wide_commits { flags |= 1 << 4; }
+    if opts.commit_sinking { flags |= 1 << 5; }
+    if opts.inline_commit_forwarding { flags |= 1 << 6; }
+    if opts.eliminate_dead_working_stores { flags |= 1 << 7; }
+    if opts.reschedule { flags |= 1 << 8; }
+    flags
+}
+
 /// Build a collision-free cache key from source content, top module, and options.
 ///
 /// When `metadata` is `Some`, the effective clock/reset settings from
@@ -446,7 +563,11 @@ fn build_cache_key(
         sources: sorted_sources,
         top: top.to_string(),
         four_state: opts.four_state,
-        optimize: opts.optimize,
+        optimize_flags: encode_optimize_options(&opts.optimize_options),
+        cranelift_opt_level: opts.cranelift_opt_level as u8,
+        regalloc_algorithm: opts.cranelift_options.regalloc_algorithm as u8,
+        enable_alias_analysis: opts.cranelift_options.enable_alias_analysis,
+        enable_verifier: opts.cranelift_options.enable_verifier,
         dead_store_policy: opts.dead_store_policy as u8,
         clock_type: opts.clock_type.map(|ct| ct as u8),
         reset_type: opts.reset_type.map(|rt| rt as u8),
@@ -1255,7 +1376,9 @@ mod tests {
     fn default_opts() -> ParsedOptions {
         ParsedOptions {
             four_state: false,
-            optimize: None,
+            optimize_options: celox::OptimizeOptions::all(),
+            cranelift_opt_level: celox::CraneliftOptLevel::Speed,
+            cranelift_options: celox::CraneliftOptions::default(),
             vcd: None,
             false_loops: vec![],
             true_loops: vec![],
@@ -1329,12 +1452,38 @@ mod tests {
     }
 
     #[test]
-    fn optimize_differs() {
+    fn optimize_options_differs() {
         let src = make_sources(&[("module Top {}", "a.veryl")]);
         let mut o1 = default_opts();
         let mut o2 = default_opts();
-        o1.optimize = None;
-        o2.optimize = Some(true);
+        o1.optimize_options = celox::OptimizeOptions::all();
+        o2.optimize_options = celox::OptimizeOptions::none();
+        assert_ne!(
+            build_cache_key(&src, "Top", &o1, None),
+            build_cache_key(&src, "Top", &o2, None),
+        );
+    }
+
+    #[test]
+    fn cranelift_opt_level_differs() {
+        let src = make_sources(&[("module Top {}", "a.veryl")]);
+        let mut o1 = default_opts();
+        let mut o2 = default_opts();
+        o1.cranelift_opt_level = celox::CraneliftOptLevel::Speed;
+        o2.cranelift_opt_level = celox::CraneliftOptLevel::None;
+        assert_ne!(
+            build_cache_key(&src, "Top", &o1, None),
+            build_cache_key(&src, "Top", &o2, None),
+        );
+    }
+
+    #[test]
+    fn regalloc_algorithm_differs() {
+        let src = make_sources(&[("module Top {}", "a.veryl")]);
+        let mut o1 = default_opts();
+        let mut o2 = default_opts();
+        o1.cranelift_options.regalloc_algorithm = celox::RegallocAlgorithm::Backtracking;
+        o2.cranelift_options.regalloc_algorithm = celox::RegallocAlgorithm::SinglePass;
         assert_ne!(
             build_cache_key(&src, "Top", &o1, None),
             build_cache_key(&src, "Top", &o2, None),

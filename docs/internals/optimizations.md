@@ -1,6 +1,6 @@
 # Simulator Optimization Algorithms
 
-Celox applies optimizations across multiple layers from compile time to runtime to accelerate simulation.
+Celox applies optimizations across multiple layers from compile time to runtime to accelerate simulation. All SIRT optimization passes can be individually enabled/disabled via `OptimizeOptions`, and the Cranelift backend optimization level is configurable via `CraneliftOptLevel`.
 
 ## 1. Logic Layer (SLT) Optimizations
 
@@ -44,7 +44,48 @@ Three strategies are applied in order of increasing cost:
 2.  **Intra-EU single-block splitting**: For a single-block EU that exceeds the threshold, splits at `Store` instruction boundaries. A dynamic programming pass minimizes the number of live registers that must be forwarded as tail-call arguments. A cost model (`cost_model.rs`) estimates per-instruction CLIF cost, calibrated against the actual translator (including quadratic costs for wide shifts, multiplication, and division).
 3.  **Memory-spilled multi-block splitting**: For multi-block EUs (containing branches and loops), splits the CFG into chunks with a single-entry-point guarantee. Inter-chunk live registers are passed through a scratch memory region appended to the unified memory buffer, rather than as function arguments. Each chunk is compiled with signature `(mem_ptr) -> i64`, and cross-chunk edges emit spill stores followed by a tail-call.
 
-This pass runs even when `optimize=false` to prevent compilation failures.
+This pass runs even when all SIRT passes are disabled (`OptimizeOptions::none()`) to prevent compilation failures.
+
+## Per-Pass Control
+
+Each SIRT optimization pass (sections 2.1–2.5) can be individually enabled or disabled via `OptimizeOptions`. The mapping from `OptimizeOptions` fields to passes:
+
+| `OptimizeOptions` field | Pass(es) |
+|---|---|
+| `store_load_forwarding` | Load/Store Coalescing, Redundant Load Elimination (2.1, 2.2) |
+| `hoist_common_branch_loads` | Branch-shared load hoisting |
+| `bit_extract_peephole` | `(value >> shift) & mask` → direct ranged load |
+| `optimize_blocks` | Dead block removal, block merging |
+| `split_wide_commits` | Wide commit splitting |
+| `commit_sinking` | Commit Sinking (2.3) |
+| `inline_commit_forwarding` | Inline Forwarding (2.3) |
+| `eliminate_dead_working_stores` | Dead Store Elimination (2.4) |
+| `reschedule` | Instruction Scheduling (2.5) |
+
+The Cranelift backend optimization level is separately configurable via `CraneliftOptLevel`:
+
+| Level | Description |
+|---|---|
+| `None` | No Cranelift-level optimizations (skips egraph pass) |
+| `Speed` (default) | Optimize for execution speed |
+| `SpeedAndSize` | Optimize for both speed and code size |
+
+Additional Cranelift backend options are available via `CraneliftOptions`:
+
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `regalloc_algorithm` | `Backtracking` / `SinglePass` | `Backtracking` | Register allocator algorithm. `SinglePass` is much faster but generates more spills |
+| `enable_alias_analysis` | bool | `true` | Alias-aware redundant load optimization during egraph pass |
+| `enable_verifier` | bool | `true` | Cranelift IR verifier — disable to save compile time |
+
+For fastest compilation at the cost of simulation performance:
+```rust
+Simulator::builder(code, "Top")
+    .cranelift_options(CraneliftOptions::fast_compile())
+    .build()
+```
+
+This sets `opt_level = None`, `regalloc_algorithm = SinglePass`, disables alias analysis and the verifier.
 
 ## 3. Execution Layer (Behavioral) Optimizations
 

@@ -16,6 +16,7 @@ import type {
 	LoopBreak,
 	NativeSimulationHandle,
 	NativeSimulatorHandle,
+	OptimizeOptions,
 	PortInfo,
 	SignalLayout,
 	SimulatorOptions,
@@ -88,10 +89,27 @@ export interface NapiParamOverride {
 	value: number;
 }
 
+export interface NapiOptimizeOptions {
+	storeLoadForwarding?: boolean;
+	hoistCommonBranchLoads?: boolean;
+	bitExtractPeephole?: boolean;
+	optimizeBlocks?: boolean;
+	splitWideCommits?: boolean;
+	commitSinking?: boolean;
+	inlineCommitForwarding?: boolean;
+	eliminateDeadWorkingStores?: boolean;
+	reschedule?: boolean;
+}
+
 export interface NapiOptions {
 	fourState?: boolean;
 	vcd?: string;
 	optimize?: boolean;
+	optimizeOptions?: NapiOptimizeOptions;
+	craneliftOptLevel?: string;
+	regallocAlgorithm?: string;
+	enableAliasAnalysis?: boolean;
+	enableVerifier?: boolean;
 	falseLoops?: NapiFalseLoop[];
 	trueLoops?: NapiTrueLoop[];
 	clockType?: string;
@@ -267,6 +285,56 @@ export function buildNapiOpts(
 			name: p.name,
 			value: typeof p.value === "bigint" ? Number(p.value) : p.value,
 		}));
+		hasOpt = true;
+	}
+	if (options.craneliftOptLevel) {
+		const clMap: Record<string, string> = {
+			none: "none",
+			speed: "speed",
+			speedAndSize: "speed_and_size",
+		};
+		napiOpts.craneliftOptLevel =
+			clMap[options.craneliftOptLevel] ?? options.craneliftOptLevel;
+		hasOpt = true;
+	}
+	if (options.regallocAlgorithm) {
+		const raMap: Record<string, string> = {
+			backtracking: "backtracking",
+			singlePass: "single_pass",
+		};
+		napiOpts.regallocAlgorithm =
+			raMap[options.regallocAlgorithm] ?? options.regallocAlgorithm;
+		hasOpt = true;
+	}
+	if (options.enableAliasAnalysis != null) {
+		napiOpts.enableAliasAnalysis = options.enableAliasAnalysis;
+		hasOpt = true;
+	}
+	if (options.enableVerifier != null) {
+		napiOpts.enableVerifier = options.enableVerifier;
+		hasOpt = true;
+	}
+	if (options.optimizeOptions) {
+		const oo = options.optimizeOptions;
+		const napiOo: NapiOptimizeOptions = {};
+		if (oo.storeLoadForwarding != null)
+			napiOo.storeLoadForwarding = oo.storeLoadForwarding;
+		if (oo.hoistCommonBranchLoads != null)
+			napiOo.hoistCommonBranchLoads = oo.hoistCommonBranchLoads;
+		if (oo.bitExtractPeephole != null)
+			napiOo.bitExtractPeephole = oo.bitExtractPeephole;
+		if (oo.optimizeBlocks != null)
+			napiOo.optimizeBlocks = oo.optimizeBlocks;
+		if (oo.splitWideCommits != null)
+			napiOo.splitWideCommits = oo.splitWideCommits;
+		if (oo.commitSinking != null)
+			napiOo.commitSinking = oo.commitSinking;
+		if (oo.inlineCommitForwarding != null)
+			napiOo.inlineCommitForwarding = oo.inlineCommitForwarding;
+		if (oo.eliminateDeadWorkingStores != null)
+			napiOo.eliminateDeadWorkingStores = oo.eliminateDeadWorkingStores;
+		if (oo.reschedule != null) napiOo.reschedule = oo.reschedule;
+		napiOpts.optimizeOptions = napiOo;
 		hasOpt = true;
 	}
 	if (options.deadStorePolicy && options.deadStorePolicy !== "off") {

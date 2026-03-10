@@ -53,6 +53,75 @@ The analyzer enforces strict checks. When writing Veryl source in integration te
 - **Clock from logic**: A `var` of type `logic` cannot be used as a clock. Use an external `clock` input or `let gated: '_ clock = clk_input & en;` (first operand must be clock-typed).
 - **Self-referential assign**: `assign v = f(v);` is rejected as `UnassignVariable`. Use `always_comb` with `if`/`else` branches if possible, or redesign the circuit.
 
+## Optimizer Options
+
+Two levels of optimization control:
+
+### SIRT Optimization Passes
+
+`OptimizeOptions` (`crates/celox/src/optimizer.rs`) provides per-pass toggles:
+
+| Pass | Description |
+|---|---|
+| `store_load_forwarding` | Propagates stored values to subsequent loads |
+| `hoist_common_branch_loads` | Hoists loads shared across all branches to the entry |
+| `bit_extract_peephole` | Converts `(value >> shift) & mask` → direct ranged loads |
+| `optimize_blocks` | General block-level optimizations (dead block removal, merging) |
+| `split_wide_commits` | Splits wide commit operations into narrower ones |
+| `commit_sinking` | Sinks commit operations closer to their use site |
+| `inline_commit_forwarding` | Inlines values forwarded through commit operations |
+| `eliminate_dead_working_stores` | Removes working-memory stores that are never read |
+| `reschedule` | Reorders instructions for better Cranelift codegen |
+
+All passes default to `true`. `.optimize(false)` sets all to `false` as a shorthand.
+
+### Cranelift Backend Optimization
+
+`CraneliftOptLevel` controls Cranelift's own optimization level:
+
+| Level | Description |
+|---|---|
+| `None` | No Cranelift optimizations |
+| `Speed` (default) | Optimize for execution speed |
+| `SpeedAndSize` | Optimize for both speed and code size |
+
+### Rust API
+
+```rust
+use celox::{OptimizeOptions, CraneliftOptLevel};
+
+// Per-pass control:
+Simulator::builder(code, "Top")
+    .optimize_options(OptimizeOptions { reschedule: false, ..OptimizeOptions::all() })
+    .build()
+
+// Individual toggles:
+Simulator::builder(code, "Top")
+    .commit_sinking(false)
+    .reschedule(false)
+    .build()
+
+// Cranelift level:
+Simulator::builder(code, "Top")
+    .cranelift_opt_level(CraneliftOptLevel::None)
+    .build()
+```
+
+### NAPI / TypeScript
+
+```ts
+const sim = await Simulator.create(module, {
+    optimizeOptions: { reschedule: false, commitSinking: false },
+    craneliftOptLevel: "none",
+});
+// Shorthand: optimize: false disables all SIRT passes
+const sim2 = await Simulator.create(module, { optimize: false });
+```
+
+- **NAPI**: `optimize_options: NapiOptimizeOptions`, `cranelift_opt_level: "none"|"speed"|"speed_and_size"` (`crates/celox-napi/src/lib.rs`)
+- **TS**: `optimizeOptions: OptimizeOptions`, `craneliftOptLevel: "none"|"speed"|"speedAndSize"` (`packages/celox/src/types.ts`)
+- **`optimize: bool`**: TS/NAPI only — shorthand to set all SIRT passes on/off. `optimizeOptions` takes precedence.
+
 ## Dead Store Elimination (DSE)
 
 DSE removes stores that are never read, improving JIT performance. Controlled via `DeadStorePolicy` (`crates/celox/src/simulator/builder.rs`):

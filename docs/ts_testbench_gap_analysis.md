@@ -38,7 +38,7 @@
 
 | 機能 | Rust API | NAPI | TS | 備考 |
 |---|---|---|---|---|
-| ~~**`optimize` フラグ**~~ | `builder.optimize(bool)` | **公開済み** | **公開済み** | `SimulatorOptions.optimize` で設定可能 |
+| ~~**`optimize` フラグ**~~ | `builder.optimize(bool)` / `builder.optimize_options(opts)` / `builder.cranelift_options(opts)` | **公開済み** | **公開済み** | `SimulatorOptions.optimizeOptions` でパス単位制御、`craneliftOptLevel` / `regallocAlgorithm` / `enableAliasAnalysis` / `enableVerifier` で Cranelift 詳細制御、`optimize` ブールはショートハンド |
 | **`TraceOptions`** | `builder.trace(opts)` + 11 個の個別メソッド | 未公開 | 未公開 | デバッグ/プロファイリング用。CLIF IR、ネイティブ ASM 等 |
 | **`build_with_trace()`** | `builder.build_with_trace()` | 未公開 | 未公開 | コンパイルトレース結果を取得 |
 | ~~**`false_loop(from, to)`**~~ | `builder.false_loop(...)` | **公開済み** | **公開済み** | `SimulatorOptions.falseLoops` で設定可能 |

@@ -48,6 +48,7 @@ export type {
 	NativeHandle,
 	NativeSimulationHandle,
 	NativeSimulatorHandle,
+	OptimizeOptions,
 	ParamOverride,
 	PortInfo,
 	SignalLayout,

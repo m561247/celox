@@ -158,15 +158,42 @@ Both `Simulator` and `Simulation` accept the following options:
 const sim = Simulator.fromSource(source, "Top", {
   fourState: true,      // Enable 4-state (X) simulation
   vcd: "./dump.vcd",    // Write VCD waveform output
-  optimize: true,       // Enable Cranelift optimization passes
   clockType: "posedge", // Clock polarity (default: "posedge")
   resetType: "async_low", // Reset type (default: "async_low")
   deadStorePolicy: "preserveAllPorts", // Dead store elimination policy
   parameters: [         // Top-level parameter overrides
     { name: "WIDTH", value: 16 },
   ],
+
+  // Optimizer control (all passes enabled by default)
+  optimizeOptions: {
+    storeLoadForwarding: true,
+    hoistCommonBranchLoads: true,
+    bitExtractPeephole: true,
+    optimizeBlocks: true,
+    splitWideCommits: true,
+    commitSinking: true,
+    inlineCommitForwarding: true,
+    eliminateDeadWorkingStores: true,
+    reschedule: true,
+  },
+  craneliftOptLevel: "speed", // "none" | "speed" | "speedAndSize"
+  regallocAlgorithm: "backtracking", // "backtracking" | "singlePass"
+  enableAliasAnalysis: true, // alias analysis in egraph pass
+  enableVerifier: true,      // Cranelift IR verifier
 });
 ```
+
+The `optimize` boolean shorthand is also supported: `optimize: false` disables all SIRT optimization passes at once. Per-pass `optimizeOptions` takes precedence when both are specified.
+
+### Cranelift Compilation Speed
+
+If Cranelift compilation is too slow, the most impactful settings are:
+
+- **`regallocAlgorithm: "singlePass"`** -- Switches from the backtracking register allocator to a single-pass allocator. Much faster compilation but generates code with more register spills and moves (slower simulation).
+- **`craneliftOptLevel: "none"`** -- Disables the egraph optimization pass entirely.
+- **`enableVerifier: false`** -- Skips IR verification.
+- **`enableAliasAnalysis: false`** -- Disables alias analysis during the egraph pass (only effective when `craneliftOptLevel` is not `"none"`).
 
 ## Type-Safe Imports
 

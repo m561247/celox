@@ -30,9 +30,36 @@ pub(super) struct JitEngine {
 impl JitEngine {
     pub fn new(layout: MemoryLayout, options: &SimulatorOptions) -> Result<Self, String> {
         let mut flag_builder = settings::builder();
+        let cl_opts = &options.cranelift_options;
 
         flag_builder
-            .set("opt_level", "speed")
+            .set("opt_level", cl_opts.opt_level.as_cranelift_str())
+            .map_err(|e| e.to_string())?;
+        flag_builder
+            .set(
+                "regalloc_algorithm",
+                cl_opts.regalloc_algorithm.as_cranelift_str(),
+            )
+            .map_err(|e| e.to_string())?;
+        flag_builder
+            .set(
+                "enable_alias_analysis",
+                if cl_opts.enable_alias_analysis {
+                    "true"
+                } else {
+                    "false"
+                },
+            )
+            .map_err(|e| e.to_string())?;
+        flag_builder
+            .set(
+                "enable_verifier",
+                if cl_opts.enable_verifier {
+                    "true"
+                } else {
+                    "false"
+                },
+            )
             .map_err(|e| e.to_string())?;
         // Required for tail calls (return_call instruction)
         flag_builder

@@ -1114,7 +1114,6 @@ pub fn parse(
     top: &StrId,
     ir: &veryl_analyzer::ir::Ir,
     config: &BuildConfig,
-    optimize: bool,
     ignored_loops: &[(
         (Vec<(String, usize)>, Vec<String>),
         (Vec<(String, usize)>, Vec<String>),
@@ -1127,6 +1126,7 @@ pub fn parse(
     four_state: bool,
     trace_opts: &crate::debug::TraceOptions,
     mut trace: Option<&mut crate::debug::CompilationTrace>,
+    optimize_options: &crate::optimizer::OptimizeOptions,
 ) -> Result<Program, ParserError> {
     let phase_timing = std::env::var("CELOX_PHASE_TIMING").is_ok();
 
@@ -1171,10 +1171,10 @@ pub fn parse(
         t.pre_optimized_sir = Some(program.clone());
     }
 
-    if optimize {
+    if optimize_options.any_enabled() {
         timed_phase!(
             "optimize",
-            crate::optimizer::optimize(&mut program, four_state)
+            crate::optimizer::optimize(&mut program, four_state, optimize_options)
         );
     } else {
         // Even without optimization, run tail-call splitting to avoid

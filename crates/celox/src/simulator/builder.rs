@@ -25,13 +25,13 @@ fn analyze(
         usize,
     )],
     four_state: bool,
-    optimize: bool,
     trace_opts: &crate::debug::TraceOptions,
     trace_out: Option<&mut crate::debug::CompilationTrace>,
     metadata: Option<Metadata>,
     clock_type: Option<ClockType>,
     reset_type: Option<ResetType>,
     param_overrides: &[(String, u64)],
+    optimize_options: &crate::optimizer::OptimizeOptions,
 ) -> (Result<Program, ParserError>, Vec<AnalyzerError>) {
     symbol_table::clear();
     attribute_table::clear();
@@ -92,12 +92,12 @@ fn analyze(
         &top,
         &ir,
         &build_config,
-        optimize,
         ignored_loops,
         true_loops,
         four_state,
         trace_opts,
         trace_out,
+        optimize_options,
     );
     (sir, errors)
 }
@@ -114,13 +114,13 @@ pub(crate) fn compile_to_sir(
         usize,
     )],
     four_state: bool,
-    optimize: bool,
     trace_opts: &crate::debug::TraceOptions,
     trace_out: Option<&mut crate::debug::CompilationTrace>,
     metadata: Option<Metadata>,
     clock_type: Option<ClockType>,
     reset_type: Option<ResetType>,
     param_overrides: &[(String, u64)],
+    optimize_options: &crate::optimizer::OptimizeOptions,
 ) -> Result<(Program, Vec<AnalyzerError>), SimulatorError> {
     let (sir, errors) = analyze(
         sources,
@@ -128,13 +128,13 @@ pub(crate) fn compile_to_sir(
         ignored_loops,
         true_loops,
         four_state,
-        optimize,
         trace_opts,
         trace_out,
         metadata,
         clock_type,
         reset_type,
         param_overrides,
+        optimize_options,
     );
     let (real_errors, warnings): (Vec<_>, Vec<_>) = errors.into_iter().partition(|e| e.is_error());
     if !real_errors.is_empty() {
@@ -162,7 +162,12 @@ pub enum DeadStorePolicy {
 #[derive(Debug, Clone)]
 pub struct SimulatorOptions {
     pub four_state: bool,
-    pub optimize: bool,
+    /// Per-pass SIRT optimizer flags.
+    pub optimize_options: crate::optimizer::OptimizeOptions,
+    /// Cranelift backend optimization level.
+    pub cranelift_opt_level: crate::optimizer::CraneliftOptLevel,
+    /// Fine-grained Cranelift backend options.
+    pub cranelift_options: crate::optimizer::CraneliftOptions,
     pub trace: crate::debug::TraceOptions,
     /// When true, JIT-compiled functions emit trigger detection code for
     /// edge-based event discovery. Only needed by [`crate::Simulation`].
@@ -175,7 +180,9 @@ impl Default for SimulatorOptions {
     fn default() -> Self {
         Self {
             four_state: false,
-            optimize: true,
+            optimize_options: crate::optimizer::OptimizeOptions::default(),
+            cranelift_opt_level: crate::optimizer::CraneliftOptLevel::default(),
+            cranelift_options: crate::optimizer::CraneliftOptions::default(),
             trace: Default::default(),
             emit_triggers: false,
             dead_store_policy: DeadStorePolicy::Off,
@@ -253,9 +260,110 @@ impl<'a, Target> SimulatorBuilder<'a, Target> {
         self
     }
 
-    /// Enable or disable SIRT optimization passes.
+    /// Enable or disable all SIRT optimization passes at once.
+    ///
+    /// `true` sets all passes to enabled, `false` disables all.
+    /// For per-pass control, use [`optimize_options`](Self::optimize_options)
+    /// or individual methods like [`commit_sinking`](Self::commit_sinking).
     pub fn optimize(mut self, enable: bool) -> Self {
-        self.options.optimize = enable;
+        self.options.optimize_options = if enable {
+            crate::optimizer::OptimizeOptions::all()
+        } else {
+            crate::optimizer::OptimizeOptions::none()
+        };
+        self
+    }
+
+    /// Set per-pass optimizer flags.
+    pub fn optimize_options(mut self, options: crate::optimizer::OptimizeOptions) -> Self {
+        self.options.optimize_options = options;
+        self
+    }
+
+    /// Set the Cranelift backend optimization level.
+    pub fn cranelift_opt_level(mut self, level: crate::optimizer::CraneliftOptLevel) -> Self {
+        self.options.cranelift_opt_level = level;
+        self.options.cranelift_options.opt_level = level;
+        self
+    }
+
+    /// Set fine-grained Cranelift backend options.
+    pub fn cranelift_options(mut self, options: crate::optimizer::CraneliftOptions) -> Self {
+        self.options.cranelift_options = options;
+        // Keep cranelift_opt_level in sync
+        self.options.cranelift_opt_level = options.opt_level;
+        self
+    }
+
+    /// Set the register allocator algorithm.
+    pub fn regalloc_algorithm(mut self, algo: crate::optimizer::RegallocAlgorithm) -> Self {
+        self.options.cranelift_options.regalloc_algorithm = algo;
+        self
+    }
+
+    /// Enable or disable alias analysis in the Cranelift egraph pass.
+    pub fn enable_alias_analysis(mut self, enable: bool) -> Self {
+        self.options.cranelift_options.enable_alias_analysis = enable;
+        self
+    }
+
+    /// Enable or disable the Cranelift IR verifier.
+    pub fn enable_verifier(mut self, enable: bool) -> Self {
+        self.options.cranelift_options.enable_verifier = enable;
+        self
+    }
+
+    /// Enable or disable the store-load forwarding pass.
+    pub fn store_load_forwarding(mut self, enable: bool) -> Self {
+        self.options.optimize_options.store_load_forwarding = enable;
+        self
+    }
+
+    /// Enable or disable the hoist-common-branch-loads pass.
+    pub fn hoist_common_branch_loads(mut self, enable: bool) -> Self {
+        self.options.optimize_options.hoist_common_branch_loads = enable;
+        self
+    }
+
+    /// Enable or disable the bit-extract peephole pass.
+    pub fn bit_extract_peephole(mut self, enable: bool) -> Self {
+        self.options.optimize_options.bit_extract_peephole = enable;
+        self
+    }
+
+    /// Enable or disable the block optimization pass.
+    pub fn optimize_blocks(mut self, enable: bool) -> Self {
+        self.options.optimize_options.optimize_blocks = enable;
+        self
+    }
+
+    /// Enable or disable the split-wide-commits pass.
+    pub fn split_wide_commits(mut self, enable: bool) -> Self {
+        self.options.optimize_options.split_wide_commits = enable;
+        self
+    }
+
+    /// Enable or disable the commit sinking pass.
+    pub fn commit_sinking(mut self, enable: bool) -> Self {
+        self.options.optimize_options.commit_sinking = enable;
+        self
+    }
+
+    /// Enable or disable the inline commit forwarding pass.
+    pub fn inline_commit_forwarding(mut self, enable: bool) -> Self {
+        self.options.optimize_options.inline_commit_forwarding = enable;
+        self
+    }
+
+    /// Enable or disable the dead working stores elimination pass.
+    pub fn eliminate_dead_working_stores(mut self, enable: bool) -> Self {
+        self.options.optimize_options.eliminate_dead_working_stores = enable;
+        self
+    }
+
+    /// Enable or disable the reschedule pass.
+    pub fn reschedule(mut self, enable: bool) -> Self {
+        self.options.optimize_options.reschedule = enable;
         self
     }
 
@@ -417,13 +525,13 @@ impl<'a> SimulatorBuilder<'a, Simulator> {
             &self.ignored_loops,
             &self.true_loops,
             self.options.four_state,
-            self.options.optimize,
             &self.options.trace,
             None,
             self.metadata,
             self.clock_type,
             self.reset_type,
             &self.param_overrides,
+            &self.options.optimize_options,
         )?;
 
         if phase_timing {
@@ -471,13 +579,13 @@ impl<'a> SimulatorBuilder<'a, Simulator> {
             &self.ignored_loops,
             &self.true_loops,
             self.options.four_state,
-            self.options.optimize,
             &self.options.trace,
             Some(&mut trace),
             self.metadata,
             self.clock_type,
             self.reset_type,
             &self.param_overrides,
+            &self.options.optimize_options,
         );
 
         let sim_res = program_res.and_then(|(mut program, warnings)| {
@@ -550,13 +658,13 @@ impl<'a> SimulatorBuilder<'a, crate::Simulation> {
             &self.ignored_loops,
             &self.true_loops,
             self.options.four_state,
-            self.options.optimize,
             &self.options.trace,
             None,
             self.metadata,
             self.clock_type,
             self.reset_type,
             &self.param_overrides,
+            &self.options.optimize_options,
         )?;
         if self.options.dead_store_policy != DeadStorePolicy::Off {
             run_dead_store_elimination(

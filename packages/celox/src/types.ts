@@ -133,13 +133,58 @@ export interface CreateResult<H extends NativeHandle = NativeHandle> {
 // User-facing options
 // ---------------------------------------------------------------------------
 
+/** Per-pass optimizer control flags. All default to `true` when omitted. */
+export interface OptimizeOptions {
+	/** Store-load forwarding: propagates stored values to subsequent loads. */
+	storeLoadForwarding?: boolean;
+	/** Hoists loads shared across all branches to the branch entry. */
+	hoistCommonBranchLoads?: boolean;
+	/** Converts `(value >> shift) & mask` patterns into direct ranged loads. */
+	bitExtractPeephole?: boolean;
+	/** General block-level optimizations (dead block removal, merging). */
+	optimizeBlocks?: boolean;
+	/** Splits wide commit operations into narrower ones for efficiency. */
+	splitWideCommits?: boolean;
+	/** Sinks commit operations closer to their use site. */
+	commitSinking?: boolean;
+	/** Inlines values forwarded through commit operations. */
+	inlineCommitForwarding?: boolean;
+	/** Removes working-memory stores that are never read. */
+	eliminateDeadWorkingStores?: boolean;
+	/** Reorders instructions for better Cranelift code generation. */
+	reschedule?: boolean;
+}
+
 export interface SimulatorOptions {
 	/** Enable 4-state (X) simulation. Default: false. */
 	fourState?: boolean;
 	/** Path to write VCD waveform output. */
 	vcd?: string;
-	/** Enable Cranelift optimization passes. */
+	/**
+	 * Shorthand to enable/disable all SIRT optimization passes.
+	 * `true` = all on, `false` = all off. Overridden by `optimizeOptions` if both set.
+	 */
 	optimize?: boolean;
+	/** Per-pass SIRT optimizer flags. Takes precedence over `optimize`. */
+	optimizeOptions?: OptimizeOptions;
+	/** Cranelift backend optimization level. Default: "speed". */
+	craneliftOptLevel?: "none" | "speed" | "speedAndSize";
+	/**
+	 * Register allocator algorithm for the Cranelift backend. Default: "backtracking".
+	 * - "backtracking": Slower compilation but generates better code with fewer spills.
+	 * - "singlePass": Much faster compilation but generates code with more register spills.
+	 */
+	regallocAlgorithm?: "backtracking" | "singlePass";
+	/**
+	 * Enable alias analysis in the Cranelift egraph optimization pass. Default: true.
+	 * Only effective when `craneliftOptLevel` is not "none".
+	 */
+	enableAliasAnalysis?: boolean;
+	/**
+	 * Enable the Cranelift IR verifier. Default: true.
+	 * Disabling saves compile time at the cost of less validation.
+	 */
+	enableVerifier?: boolean;
 	/** False-loop declarations to ignore during compilation. */
 	falseLoops?: LoopBreak[];
 	/** True-loop declarations with convergence limits. */
