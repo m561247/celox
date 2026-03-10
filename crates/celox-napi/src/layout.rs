@@ -15,10 +15,6 @@ pub struct SignalLayout {
     pub array_dims: Vec<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub associated_clock: Option<String>,
-    /// Byte stride between consecutive array elements. Present only for
-    /// decomposed arrays where stride may exceed `byte_size` due to alignment.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub element_stride: Option<usize>,
 }
 
 /// Hierarchical node with signals and children, serialized to JS.
@@ -70,7 +66,6 @@ fn build_signal_layout_entry(ns: &NamedSignal, four_state_mode: bool) -> SignalL
         type_kind,
         array_dims,
         associated_clock: ns.associated_clock.clone(),
-        element_stride: ns.element_stride,
     }
 }
 

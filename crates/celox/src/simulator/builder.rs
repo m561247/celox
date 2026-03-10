@@ -608,7 +608,6 @@ fn run_dead_store_elimination(
                             externally_live.insert(AbsoluteAddr {
                                 instance_id: top_instance_id,
                                 var_id: info.id,
-                                element_index: None,
                             });
                         }
                     }
@@ -626,7 +625,6 @@ fn run_dead_store_elimination(
                         externally_live.insert(AbsoluteAddr {
                             instance_id,
                             var_id: info.id,
-                            element_index: None,
                         });
                     }
                 }

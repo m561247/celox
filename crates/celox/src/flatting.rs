@@ -23,7 +23,6 @@ pub fn flatting(
     let cv = &|id: &VarId| AbsoluteAddr {
         instance_id,
         var_id: *id,
-        element_index: None,
     };
 
     let mut comb_cache = HashMap::default();
@@ -292,12 +291,10 @@ fn convert_glue_block(
         GlueAddr::Parent(v) => AbsoluteAddr {
             instance_id: parent_id,
             var_id: *v,
-            element_index: None,
         },
         GlueAddr::Child(v) => AbsoluteAddr {
             instance_id: child_id,
             var_id: *v,
-            element_index: None,
         },
     };
     let mut res = Vec::new();
@@ -500,7 +497,6 @@ mod tests {
                     == (AbsoluteAddr {
                         instance_id: InstanceId(0),
                         var_id: top_ic_id,
-                        element_index: None,
                     })
             })
             .unwrap();
@@ -508,8 +504,7 @@ mod tests {
         assert!(path1.sources.contains(&VarAtomBase::new(
             AbsoluteAddr {
                 instance_id: InstanceId(0),
-                var_id: top_i_id,
-                element_index: None,
+                var_id: top_i_id
             },
             0,
             0
@@ -523,7 +518,6 @@ mod tests {
                     == (AbsoluteAddr {
                         instance_id: InstanceId(0),
                         var_id: top_o_id,
-                        element_index: None,
                     })
             })
             .unwrap();
@@ -531,8 +525,7 @@ mod tests {
         assert!(path2.sources.contains(&VarAtomBase::new(
             AbsoluteAddr {
                 instance_id: InstanceId(0),
-                var_id: top_oc_id,
-                element_index: None,
+                var_id: top_oc_id
             },
             0,
             0
@@ -546,7 +539,6 @@ mod tests {
                     == (AbsoluteAddr {
                         instance_id: InstanceId(1),
                         var_id: child_i_id,
-                        element_index: None,
                     })
             })
             .unwrap();
@@ -554,8 +546,7 @@ mod tests {
         assert!(path3.sources.contains(&VarAtomBase::new(
             AbsoluteAddr {
                 instance_id: InstanceId(0),
-                var_id: top_ic_id,
-                element_index: None,
+                var_id: top_ic_id
             },
             0,
             0
@@ -569,7 +560,6 @@ mod tests {
                     == (AbsoluteAddr {
                         instance_id: InstanceId(0),
                         var_id: top_oc_id,
-                        element_index: None,
                     })
             })
             .unwrap();
@@ -577,8 +567,7 @@ mod tests {
         assert!(path4.sources.contains(&VarAtomBase::new(
             AbsoluteAddr {
                 instance_id: InstanceId(1),
-                var_id: child_o_id,
-                element_index: None,
+                var_id: child_o_id
             },
             0,
             0

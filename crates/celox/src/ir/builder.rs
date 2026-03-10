@@ -54,9 +54,6 @@ impl<Addr> SIRBuilder<Addr> {
     pub fn register(&self, id: &RegisterId) -> &RegisterType {
         &self.registers[id]
     }
-    pub fn blocks(&self) -> &HashMap<BlockId, BasicBlock<Addr>> {
-        &self.blocks
-    }
     pub fn drain(
         &mut self,
     ) -> (

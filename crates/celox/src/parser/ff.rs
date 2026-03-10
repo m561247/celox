@@ -478,11 +478,7 @@ impl<'a> FfParser<'a> {
                 stmt,
                 &mut targets,
                 &Domain::Ff,
-                &|x, region| crate::ir::RegionedVarAddr {
-                    var_id: x,
-                    region,
-                    element_index: None,
-                },
+                &|x, region| crate::ir::RegionedVarAddr { var_id: x, region },
                 &mut sources,
                 ir_builder,
             )?;
@@ -494,11 +490,7 @@ impl<'a> FfParser<'a> {
                 &all_false_sides,
                 &mut targets,
                 &Domain::Ff,
-                &|x, region| crate::ir::RegionedVarAddr {
-                    var_id: x,
-                    region,
-                    element_index: None,
-                },
+                &|x, region| crate::ir::RegionedVarAddr { var_id: x, region },
                 &mut sources,
                 ir_builder,
             )?;

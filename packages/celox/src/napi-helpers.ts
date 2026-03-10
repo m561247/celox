@@ -295,7 +295,6 @@ interface RawSignalLayout {
 	type_kind: string;
 	array_dims?: number[];
 	associated_clock?: string;
-	element_stride?: number;
 }
 
 /**
@@ -332,7 +331,6 @@ export function parseNapiLayout(json: string): {
 			byteSize: r.byte_size > 0 ? r.byte_size : Math.ceil(r.width / 8),
 			is4state: r.is_4state,
 			direction: r.direction as SignalLayout["direction"],
-			...(r.element_stride != null ? { elementStride: r.element_stride } : {}),
 		};
 		const entry: SignalLayout & {
 			typeKind: string;
@@ -480,7 +478,6 @@ function convertHierarchyNode(
 			byteSize: r.byte_size > 0 ? r.byte_size : Math.ceil(r.width / 8),
 			is4state: r.is_4state,
 			direction: r.direction as SignalLayout["direction"],
-			...(r.element_stride != null ? { elementStride: r.element_stride } : {}),
 		};
 		const entry: SignalLayout & { typeKind: string; arrayDims?: number[] } = {
 			...sl,

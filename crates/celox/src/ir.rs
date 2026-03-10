@@ -114,7 +114,6 @@ impl Program {
         AbsoluteAddr {
             instance_id,
             var_id: variable.id,
-            element_index: None,
         }
     }
 
@@ -317,10 +316,6 @@ impl fmt::Display for InstanceId {
 pub struct AbsoluteAddrBase<V> {
     pub instance_id: InstanceId,
     pub var_id: V,
-    /// When `Some(i)`, addresses element `i` of an unpacked array variable.
-    /// `None` addresses the variable as a whole (scalar or packed blob).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub element_index: Option<u32>,
 }
 
 /// Concrete address type using the Veryl analyzer's `VarId`.
@@ -328,15 +323,7 @@ pub type AbsoluteAddr = AbsoluteAddrBase<VarId>;
 
 impl<V: fmt::Display> fmt::Display for AbsoluteAddrBase<V> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if let Some(idx) = self.element_index {
-            write!(
-                f,
-                "AbsoluteAddr({}, {}[{}])",
-                self.instance_id, self.var_id, idx
-            )
-        } else {
-            write!(f, "AbsoluteAddr({}, {})", self.instance_id, self.var_id)
-        }
+        write!(f, "AbsoluteAddr({}, {})", self.instance_id, self.var_id)
     }
 }
 
@@ -361,8 +348,6 @@ pub const WORKING_REGION: u32 = 1;
 pub struct RegionedVarAddrBase<V> {
     pub region: u32,
     pub var_id: V,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub element_index: Option<u32>,
 }
 
 /// Concrete regioned variable address using the Veryl analyzer's `VarId`.
@@ -370,19 +355,11 @@ pub type RegionedVarAddr = RegionedVarAddrBase<VarId>;
 
 impl<V: fmt::Display> fmt::Display for RegionedVarAddrBase<V> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if let Some(idx) = self.element_index {
-            write!(
-                f,
-                "RegionedVarAddr(region={}, {}[{}])",
-                self.region, self.var_id, idx
-            )
-        } else {
-            write!(
-                f,
-                "RegionedVarAddr(region={}, {})",
-                self.region, self.var_id
-            )
-        }
+        write!(
+            f,
+            "RegionedVarAddr(region={}, {})",
+            self.region, self.var_id
+        )
     }
 }
 
@@ -391,8 +368,6 @@ pub struct RegionedAbsoluteAddrBase<V> {
     pub region: u32,
     pub instance_id: InstanceId,
     pub var_id: V,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub element_index: Option<u32>,
 }
 
 /// Concrete regioned address type using the Veryl analyzer's `VarId`.
@@ -404,7 +379,6 @@ impl<V: Copy> RegionedAbsoluteAddrBase<V> {
             region,
             instance_id: addr.instance_id,
             var_id: addr.var_id,
-            element_index: addr.element_index,
         }
     }
 
@@ -412,26 +386,17 @@ impl<V: Copy> RegionedAbsoluteAddrBase<V> {
         AbsoluteAddrBase {
             instance_id: self.instance_id,
             var_id: self.var_id,
-            element_index: self.element_index,
         }
     }
 }
 
 impl<V: fmt::Display> fmt::Display for RegionedAbsoluteAddrBase<V> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if let Some(idx) = self.element_index {
-            write!(
-                f,
-                "RegionedAbsoluteAddr(region={}, {}, {}[{}])",
-                self.region, self.instance_id, self.var_id, idx
-            )
-        } else {
-            write!(
-                f,
-                "RegionedAbsoluteAddr(region={}, {}, {})",
-                self.region, self.instance_id, self.var_id
-            )
-        }
+        write!(
+            f,
+            "RegionedAbsoluteAddr(region={}, {}, {})",
+            self.region, self.instance_id, self.var_id
+        )
     }
 }
 #[derive(Clone)]
@@ -940,7 +905,6 @@ mod tests {
         let addr = AbsoluteAddr {
             instance_id: InstanceId(0),
             var_id: VarId::default(),
-            element_index: None,
         };
         let display = format!("{}", addr);
         assert!(display.contains("AbsoluteAddr"));

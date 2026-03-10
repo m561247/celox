@@ -761,8 +761,7 @@ function createArrayDut(
 
 	// Byte-aligned elements (elementWidth % 8 === 0): use byte-stride I/O.
 	const elementByteSize = elementWidth >> 3;
-	const stride = baseSig.elementStride ?? elementByteSize;
-	const maskBase2 = baseOffset + totalElements * stride;
+	const maskBase2 = baseOffset + totalElements * elementByteSize;
 
 	return {
 		length: totalElements,
@@ -773,7 +772,7 @@ function createArrayDut(
 				handle.evalComb();
 				state.dirty = false;
 			}
-			const offset = baseOffset + i * stride;
+			const offset = baseOffset + i * elementByteSize;
 			if (elementWidth <= 53) {
 				return BigInt(readNumber(view, offset, elementWidth));
 			}
@@ -785,8 +784,8 @@ function createArrayDut(
 			if (isOutput) {
 				throw new Error("Cannot write to output array port");
 			}
-			const offset = baseOffset + i * stride;
-			const maskOffset = maskBase2 + i * stride;
+			const offset = baseOffset + i * elementByteSize;
+			const maskOffset = maskBase2 + i * elementByteSize;
 			if (value === Symbol.for("veryl:X")) {
 				if (!is4state) {
 					throw new Error("Array port is not 4-state; cannot assign X");
