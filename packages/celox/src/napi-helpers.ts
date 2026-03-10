@@ -16,7 +16,6 @@ import type {
 	LoopBreak,
 	NativeSimulationHandle,
 	NativeSimulatorHandle,
-	OptimizeOptions,
 	PortInfo,
 	SignalLayout,
 	SimulatorOptions,
@@ -323,12 +322,10 @@ export function buildNapiOpts(
 			napiOo.hoistCommonBranchLoads = oo.hoistCommonBranchLoads;
 		if (oo.bitExtractPeephole != null)
 			napiOo.bitExtractPeephole = oo.bitExtractPeephole;
-		if (oo.optimizeBlocks != null)
-			napiOo.optimizeBlocks = oo.optimizeBlocks;
+		if (oo.optimizeBlocks != null) napiOo.optimizeBlocks = oo.optimizeBlocks;
 		if (oo.splitWideCommits != null)
 			napiOo.splitWideCommits = oo.splitWideCommits;
-		if (oo.commitSinking != null)
-			napiOo.commitSinking = oo.commitSinking;
+		if (oo.commitSinking != null) napiOo.commitSinking = oo.commitSinking;
 		if (oo.inlineCommitForwarding != null)
 			napiOo.inlineCommitForwarding = oo.inlineCommitForwarding;
 		if (oo.eliminateDeadWorkingStores != null)
