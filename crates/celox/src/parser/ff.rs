@@ -135,11 +135,7 @@ impl<'a> FfParser<'a> {
     fn get_factor_width(&self, factor: &Factor) -> usize {
         match factor {
             Factor::Variable(var_id, index, select, _) => {
-                if let Ok(w) = get_access_width(self.module, *var_id, index, select) {
-                    w
-                } else {
-                    64
-                }
+                get_access_width(self.module, *var_id, index, select).unwrap_or(64)
             }
             Factor::Value(comptime) => {
                 if let Ok(v) = comptime.get_value() {
