@@ -28,12 +28,13 @@ cargo insta accept       # Accept snapshot changes
 | `crates/celox-macros` | Procedural macros |
 | `crates/celox-napi` | N-API bindings for Node.js |
 | `crates/celox-ts-gen` | CLI tool for TypeScript type generation |
+| `crates/celox-bench-sv` | SystemVerilog generator for Verilator benchmarks |
 | `packages/celox` | TypeScript runtime package |
 | `packages/vite-plugin` | Vite plugin |
 
 ## Veryl Submodule
 
-The `deps/veryl/` directory contains a fork of Veryl (`tignear/veryl`). The workspace depends on `veryl-analyzer`, `veryl-parser`, `veryl-metadata`, and `veryl-path` from this submodule.
+The `deps/veryl/` directory contains a fork of Veryl (`tignear/veryl`). The workspace depends on `veryl-analyzer`, `veryl-emitter`, `veryl-parser`, `veryl-metadata`, and `veryl-path` from this submodule.
 
 - `default-features = false` is set on `veryl-parser` to suppress parser regeneration during builds.
 - After updating the submodule, run `cargo test` to verify compatibility.
@@ -77,18 +78,21 @@ All passes default to `true`. `.optimize(false)` sets all to `false` as a shorth
 
 ### Cranelift Backend Optimization
 
-`CraneliftOptLevel` controls Cranelift's own optimization level:
+`CraneliftOptions` (`crates/celox/src/optimizer.rs`) provides fine-grained Cranelift backend control:
 
-| Level | Description |
-|---|---|
-| `None` | No Cranelift optimizations |
-| `Speed` (default) | Optimize for execution speed |
-| `SpeedAndSize` | Optimize for both speed and code size |
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `opt_level` | `CraneliftOptLevel` | `Speed` | Optimization level (`None` / `Speed` / `SpeedAndSize`) |
+| `regalloc_algorithm` | `RegallocAlgorithm` | `Backtracking` | Register allocator (`Backtracking` = better code / `SinglePass` = faster compile) |
+| `enable_alias_analysis` | `bool` | `true` | Alias analysis in egraph pass (only effective when `opt_level` ≠ `None`) |
+| `enable_verifier` | `bool` | `true` | Cranelift IR verifier (disable to save compile time) |
+
+`CraneliftOptions::fast_compile()` is a preset: `opt_level=None`, `regalloc=SinglePass`, alias analysis off, verifier off.
 
 ### Rust API
 
 ```rust
-use celox::{OptimizeOptions, CraneliftOptLevel};
+use celox::{OptimizeOptions, CraneliftOptLevel, CraneliftOptions, RegallocAlgorithm};
 
 // Per-pass control:
 Simulator::builder(code, "Top")
@@ -105,6 +109,18 @@ Simulator::builder(code, "Top")
 Simulator::builder(code, "Top")
     .cranelift_opt_level(CraneliftOptLevel::None)
     .build()
+
+// Fine-grained Cranelift options:
+Simulator::builder(code, "Top")
+    .cranelift_options(CraneliftOptions::fast_compile())
+    .build()
+
+// Individual Cranelift toggles:
+Simulator::builder(code, "Top")
+    .regalloc_algorithm(RegallocAlgorithm::SinglePass)
+    .enable_alias_analysis(false)
+    .enable_verifier(false)
+    .build()
 ```
 
 ### NAPI / TypeScript
@@ -113,13 +129,16 @@ Simulator::builder(code, "Top")
 const sim = await Simulator.create(module, {
     optimizeOptions: { reschedule: false, commitSinking: false },
     craneliftOptLevel: "none",
+    regallocAlgorithm: "singlePass",
+    enableAliasAnalysis: false,
+    enableVerifier: false,
 });
 // Shorthand: optimize: false disables all SIRT passes
 const sim2 = await Simulator.create(module, { optimize: false });
 ```
 
-- **NAPI**: `optimize_options: NapiOptimizeOptions`, `cranelift_opt_level: "none"|"speed"|"speed_and_size"` (`crates/celox-napi/src/lib.rs`)
-- **TS**: `optimizeOptions: OptimizeOptions`, `craneliftOptLevel: "none"|"speed"|"speedAndSize"` (`packages/celox/src/types.ts`)
+- **NAPI**: `optimize_options: NapiOptimizeOptions`, `cranelift_opt_level: "none"|"speed"|"speed_and_size"`, `regalloc_algorithm: "backtracking"|"single_pass"`, `enable_alias_analysis: bool`, `enable_verifier: bool` (`crates/celox-napi/src/lib.rs`)
+- **TS**: `optimizeOptions: OptimizeOptions`, `craneliftOptLevel: "none"|"speed"|"speedAndSize"`, `regallocAlgorithm: "backtracking"|"singlePass"`, `enableAliasAnalysis: bool`, `enableVerifier: bool` (`packages/celox/src/types.ts`)
 - **`optimize: bool`**: TS/NAPI only — shorthand to set all SIRT passes on/off. `optimizeOptions` takes precedence.
 
 ## Dead Store Elimination (DSE)
