@@ -86,5 +86,8 @@ module ModuleB (
 
     let native = trace.native.expect("Native should be captured");
     assert!(native.contains("Native Machine Code Dump"));
-    assert!(native.contains("Hex: "));
+    assert!(
+        native.contains("Size:"),
+        "Native trace should contain size info"
+    );
 }

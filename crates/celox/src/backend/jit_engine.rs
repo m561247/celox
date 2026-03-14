@@ -97,6 +97,10 @@ impl JitEngine {
             out.push_str(&format!("{}\n{}\n", label, ctx.func.display()));
         }
 
+        if native_out.is_some() {
+            ctx.want_disasm = true;
+        }
+
         let isa = self.module.isa();
         let mut ctrl_plane = cranelift::codegen::control::ControlPlane::default();
         ctx.optimize(isa, &mut ctrl_plane)
@@ -114,9 +118,10 @@ impl JitEngine {
             if let Some(compiled) = ctx.compiled_code() {
                 let data = compiled.buffer.data();
                 out.push_str(&format!("{} Size: {} bytes\n", label, data.len()));
-                out.push_str("Hex: ");
-                for &byte in data {
-                    out.push_str(&format!("{:02x} ", byte));
+                if let Some(disasm) = &compiled.vcode {
+                    out.push_str(disasm);
+                } else {
+                    out.push_str("(disassembly not available)");
                 }
                 out.push('\n');
             }
