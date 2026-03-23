@@ -1,4 +1,5 @@
 mod comb;
+pub mod const_inline;
 mod lower;
 pub mod range_store;
 pub use comb::LogicPath;

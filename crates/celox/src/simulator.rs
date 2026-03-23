@@ -246,7 +246,8 @@ impl Simulator {
             });
 
             for info in sorted_vars {
-                let name = info.path
+                let name = info
+                    .path
                     .0
                     .iter()
                     .map(|s| {
@@ -312,7 +313,8 @@ impl Simulator {
 
         let mut result = Vec::new();
         for info in module_vars.values() {
-            let name = info.path
+            let name = info
+                .path
                 .0
                 .iter()
                 .map(|s| {
