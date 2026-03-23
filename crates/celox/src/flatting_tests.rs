@@ -416,10 +416,9 @@ fn test_instances_inherit_module_boundaries() {
         .expect("Child module not found");
     let child_vars = &program.module_variables[&child_module_id];
     let x_info = child_vars
-        .iter()
-        .find(|(path, _)| path.0.len() == 1 && path.0[0] == resource_table::insert_str("x"))
-        .unwrap()
-        .1;
+        .values()
+        .find(|info| info.path.0.len() == 1 && info.path.0[0] == resource_table::insert_str("x"))
+        .unwrap();
     let x_id = x_info.id;
 
     // Verify that we actually have different instance IDs in the paths

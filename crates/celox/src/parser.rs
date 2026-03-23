@@ -2,7 +2,7 @@ use crate::{HashMap, HashSet, flatting};
 use thiserror::Error;
 
 use crate::parser::module::ModuleParser;
-use veryl_analyzer::ir::{Component, Module, VarKind, VarPath};
+use veryl_analyzer::ir::{Component, Module, VarId, VarKind, VarPath};
 use veryl_analyzer::multi_sources::{MultiSources, Source};
 use veryl_metadata::{ClockType, ResetType};
 use veryl_parser::resource_table::{self, StrId};
@@ -527,7 +527,7 @@ pub(crate) fn flatten(
         "unify_clock_domains",
         unify_clock_domains(&expanded, &instance_modules, &modules)
     );
-    let (global_arena, mut eval_apply_ffs, eval_only_ffs, apply_ffs, comb_blocks) = timed_sub!(
+    let (mut global_arena, mut eval_apply_ffs, eval_only_ffs, apply_ffs, mut comb_blocks) = timed_sub!(
         "relocate_units",
         relocate_units(
             &expanded,
@@ -589,6 +589,12 @@ pub(crate) fn flatten(
         t.flattened_comb_blocks = Some((comb_blocks.clone(), global_arena.clone()));
     }
 
+    // Constant variable inlining: detect variables whose every LogicPath
+    // is a constant, then replace all Input references with Constant nodes.
+    // This eliminates Store→Load roundtrips for compile-time constants
+    // (e.g. genvar-expanded parity-check matrices).
+    crate::logic_tree::const_inline::inline_constant_variables(&mut comb_blocks, &mut global_arena);
+
     let sched_start = flatten_timing.then(std::time::Instant::now);
     let schduled = scheduler::sort(
         comb_blocks,
@@ -598,6 +604,7 @@ pub(crate) fn flatten(
         four_state,
     )
     .map_err(|e| {
+        let (err_vars, err_path_idx) = module_variables(module_ir, config).unwrap_or_default();
         let program = Program {
             eval_apply_ffs: HashMap::default(),
             eval_only_ffs: HashMap::default(),
@@ -606,7 +613,8 @@ pub(crate) fn flatten(
             eval_comb_plan: None,
             instance_ids: expanded.clone(),
             instance_module: instance_modules.clone(),
-            module_variables: module_variables(module_ir, config).unwrap_or_default(),
+            module_variables: err_vars,
+            module_var_path_index: err_path_idx,
             module_names: module_names.clone(),
             clock_domains: HashMap::default(),
             topological_clocks: Vec::new(),
@@ -676,6 +684,7 @@ pub(crate) fn flatten(
     };
 
     let num_events = topological_clocks.len();
+    let (mod_vars, mod_path_idx) = module_variables(module_ir, config)?;
     let program = Program {
         eval_apply_ffs,
         eval_only_ffs,
@@ -684,7 +693,8 @@ pub(crate) fn flatten(
         eval_comb_plan: None,
         instance_ids: expanded,
         instance_module: instance_modules,
-        module_variables: module_variables(module_ir, config)?,
+        module_variables: mod_vars,
+        module_var_path_index: mod_path_idx,
         module_names,
         clock_domains,
         topological_clocks,
@@ -702,7 +712,7 @@ pub(crate) fn flatten(
         if let Some(module_id) = program.instance_module.get(&addr.instance_id) {
             if let Some(vars) = module_vars.get(module_id) {
                 // Find variable info by var_id
-                if let Some(info) = vars.values().find(|v| v.id == addr.var_id) {
+                if let Some(info) = vars.get(&addr.var_id) {
                     let kind = info.kind;
                     trigger_map
                         .entry(*addr)
@@ -822,16 +832,34 @@ pub(crate) fn flatten(
 fn module_variables(
     module_ir: &HashMap<ModuleId, &Module>,
     config: &BuildConfig,
-) -> Result<HashMap<ModuleId, HashMap<VarPath, VariableInfo>>, ParserError> {
+) -> Result<
+    (
+        HashMap<ModuleId, HashMap<VarId, VariableInfo>>,
+        HashMap<ModuleId, HashMap<VarPath, Option<VarId>>>,
+    ),
+    ParserError,
+> {
     let mut res = HashMap::default();
+    let mut path_index = HashMap::default();
     for (id, module) in module_ir {
         let mut variables = HashMap::default();
+        let mut paths: HashMap<VarPath, Option<VarId>> = HashMap::default();
         for (id, varibale) in &module.variables {
+            match paths.entry(varibale.path.clone()) {
+                std::collections::hash_map::Entry::Vacant(e) => {
+                    e.insert(Some(*id));
+                }
+                std::collections::hash_map::Entry::Occupied(mut e) => {
+                    // Duplicate VarPath — mark as ambiguous
+                    e.insert(None);
+                }
+            }
             variables.insert(
-                varibale.path.clone(),
+                *id,
                 VariableInfo {
                     width: resolve_total_width(module, varibale)?,
                     id: *id,
+                    path: varibale.path.clone(),
                     is_4state: is_4state_type(&varibale.r#type.kind),
                     kind: type_kind_to_domain_kind(&varibale.r#type.kind, config),
                     var_kind: varibale.kind,
@@ -841,8 +869,9 @@ fn module_variables(
             );
         }
         res.insert(*id, variables);
+        path_index.insert(*id, paths);
     }
-    Ok(res)
+    Ok((res, path_index))
 }
 
 fn type_kind_to_port_type_kind(

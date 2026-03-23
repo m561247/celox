@@ -344,8 +344,7 @@ impl JitBackend {
             for (addr, &offset) in &engine.translator.layout.offsets {
                 let width = engine.translator.layout.widths[addr];
                 let is_4state = sir.module_variables[&sir.instance_module[&addr.instance_id]]
-                    .values()
-                    .find(|v| v.id == addr.var_id)
+                    .get(&addr.var_id)
                     .map(|v| v.is_4state)
                     .unwrap_or(false);
 
@@ -358,8 +357,7 @@ impl JitBackend {
                 let offset = engine.translator.layout.working_base_offset + rel_offset;
                 let width = engine.translator.layout.widths[addr];
                 let is_4state = sir.module_variables[&sir.instance_module[&addr.instance_id]]
-                    .values()
-                    .find(|v| v.id == addr.var_id)
+                    .get(&addr.var_id)
                     .map(|v| v.is_4state)
                     .unwrap_or(false);
 

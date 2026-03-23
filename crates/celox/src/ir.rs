@@ -38,6 +38,7 @@ pub struct TriggerIdWithKind {
 pub struct VariableInfo {
     pub width: usize,
     pub id: VarId,
+    pub path: VarPath,
     pub is_4state: bool,
     pub kind: DomainKind,
     pub var_kind: veryl_analyzer::ir::VarKind,
@@ -85,7 +86,10 @@ pub struct Program {
     pub eval_comb_plan: Option<EvalCombPlan>,
     pub instance_ids: HashMap<InstancePath, InstanceId>,
     pub instance_module: HashMap<InstanceId, ModuleId>,
-    pub module_variables: HashMap<ModuleId, HashMap<VarPath, VariableInfo>>,
+    pub module_variables: HashMap<ModuleId, HashMap<VarId, VariableInfo>>,
+    /// Reverse index: VarPath → VarId for path-based lookups.
+    /// `None` marks ambiguous paths (multiple VarIds share the same VarPath).
+    pub module_var_path_index: HashMap<ModuleId, HashMap<VarPath, Option<VarId>>>,
     pub module_names: HashMap<ModuleId, StrId>,
     pub clock_domains: HashMap<AbsoluteAddr, AbsoluteAddr>,
     pub topological_clocks: Vec<AbsoluteAddr>,
@@ -110,10 +114,19 @@ impl Program {
             var_path_str_id.push(id);
         }
 
-        let variable = &self.module_variables[&module_id][&VarPath(var_path_str_id)];
+        let target_path = VarPath(var_path_str_id);
+        let entry = self.module_var_path_index[&module_id]
+            .get(&target_path)
+            .unwrap_or_else(|| panic!("Variable not found: {:?}", target_path));
+        let var_id = entry.unwrap_or_else(|| {
+            panic!(
+                "Ambiguous variable path: {:?} — multiple variables share this path",
+                target_path
+            )
+        });
         AbsoluteAddr {
             instance_id,
-            var_id: variable.id,
+            var_id,
         }
     }
 
@@ -129,9 +142,9 @@ impl Program {
         let module_id = self.instance_module.get(&instance_id).unwrap();
         let module_vars = self.module_variables.get(module_id).unwrap();
         let var_path = module_vars
-            .iter()
-            .find(|(_, info)| info.id == var_id)
-            .map(|(path, _)| path);
+            .values()
+            .find(|info| info.id == var_id)
+            .map(|info| &info.path);
 
         let mut res = Vec::new();
         if let Some(ip) = instance_path {
@@ -158,7 +171,7 @@ impl Program {
     pub fn get_variable_info(&self, addr: &AbsoluteAddr) -> Option<&VariableInfo> {
         let module_id = self.instance_module.get(&addr.instance_id)?;
         let module_vars = self.module_variables.get(module_id)?;
-        module_vars.values().find(|info| info.id == addr.var_id)
+        module_vars.get(&addr.var_id)
     }
 
     pub fn num_events(&self) -> usize {

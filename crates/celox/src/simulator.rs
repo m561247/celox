@@ -238,15 +238,15 @@ impl Simulator {
             let variables = &self.program.module_variables[module_id];
             let scope = format!("{}", instance_id);
 
-            let mut sorted_vars: Vec<_> = variables.iter().collect();
+            let mut sorted_vars: Vec<_> = variables.values().collect();
             sorted_vars.sort_by(|a, b| {
-                let name_a = a.0.to_string();
-                let name_b = b.0.to_string();
+                let name_a = a.path.to_string();
+                let name_b = b.path.to_string();
                 name_a.cmp(&name_b)
             });
 
-            for (var_path, info) in sorted_vars {
-                let name = var_path
+            for info in sorted_vars {
+                let name = info.path
                     .0
                     .iter()
                     .map(|s| {
@@ -311,8 +311,8 @@ impl Simulator {
         let module_vars = &self.program.module_variables[module_id];
 
         let mut result = Vec::new();
-        for (var_path, info) in module_vars {
-            let name = var_path
+        for info in module_vars.values() {
+            let name = info.path
                 .0
                 .iter()
                 .map(|s| {
